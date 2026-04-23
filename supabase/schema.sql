@@ -14,9 +14,14 @@ create table if not exists classes (
   description text,
   teacher_id uuid not null references profiles(id) on delete cascade,
   year_level text,
+  strand text,
+  course text,
   class_password text,
   created_at timestamptz default now()
 );
+
+alter table classes add column if not exists strand text;
+alter table classes add column if not exists course text;
 
 create table if not exists class_join_requests (
   id uuid primary key default uuid_generate_v4(),
@@ -527,6 +532,60 @@ with check (public.can_manage_class(auth.uid(), class_id));
 alter table public.quizzes add column if not exists created_by uuid references public.profiles(id) on delete set null;
 alter table public.announcements add column if not exists created_by uuid references public.profiles(id) on delete set null;
 alter table class_join_requests add column if not exists student_role text;
+alter table public.questions add column if not exists required boolean not null default true;
+alter table public.questions add column if not exists option_feedback jsonb;
+
+-- Storage bucket for uploaded question images
+do $$
+begin
+  if not exists (
+    select 1 from storage.buckets where id = 'quiz-question-images'
+  ) then
+    insert into storage.buckets (id, name, public)
+    values ('quiz-question-images', 'quiz-question-images', true);
+  end if;
+end $$;
+
+drop policy if exists "quiz_question_images_public_read" on storage.objects;
+create policy "quiz_question_images_public_read"
+on storage.objects for select
+using (bucket_id = 'quiz-question-images');
+
+drop policy if exists "quiz_question_images_manager_insert" on storage.objects;
+create policy "quiz_question_images_manager_insert"
+on storage.objects for insert
+with check (
+  bucket_id = 'quiz-question-images'
+  and auth.role() = 'authenticated'
+  and split_part(name, '/', 1) ~* '^[0-9a-f-]{8}-[0-9a-f-]{4}-[1-5][0-9a-f-]{3}-[89ab][0-9a-f-]{3}-[0-9a-f-]{12}$'
+  and public.can_manage_class(auth.uid(), split_part(name, '/', 1)::uuid)
+);
+
+drop policy if exists "quiz_question_images_manager_update" on storage.objects;
+create policy "quiz_question_images_manager_update"
+on storage.objects for update
+using (
+  bucket_id = 'quiz-question-images'
+  and auth.role() = 'authenticated'
+  and split_part(name, '/', 1) ~* '^[0-9a-f-]{8}-[0-9a-f-]{4}-[1-5][0-9a-f-]{3}-[89ab][0-9a-f-]{3}-[0-9a-f-]{12}$'
+  and public.can_manage_class(auth.uid(), split_part(name, '/', 1)::uuid)
+)
+with check (
+  bucket_id = 'quiz-question-images'
+  and auth.role() = 'authenticated'
+  and split_part(name, '/', 1) ~* '^[0-9a-f-]{8}-[0-9a-f-]{4}-[1-5][0-9a-f-]{3}-[89ab][0-9a-f-]{3}-[0-9a-f-]{12}$'
+  and public.can_manage_class(auth.uid(), split_part(name, '/', 1)::uuid)
+);
+
+drop policy if exists "quiz_question_images_manager_delete" on storage.objects;
+create policy "quiz_question_images_manager_delete"
+on storage.objects for delete
+using (
+  bucket_id = 'quiz-question-images'
+  and auth.role() = 'authenticated'
+  and split_part(name, '/', 1) ~* '^[0-9a-f-]{8}-[0-9a-f-]{4}-[1-5][0-9a-f-]{3}-[89ab][0-9a-f-]{3}-[0-9a-f-]{12}$'
+  and public.can_manage_class(auth.uid(), split_part(name, '/', 1)::uuid)
+);
 
 -- Ensure PostgREST sees new columns immediately
 notify pgrst, 'reload schema';

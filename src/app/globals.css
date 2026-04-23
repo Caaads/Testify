@@ -7,6 +7,7 @@
   --surface-elevated: #f7fafc;
   --muted: #64748b;
   --border: #dbe4ef;
+  --accent: #0ea5e9;
   --shadow: 0 20px 55px -32px rgba(16, 32, 60, 0.35);
 }
 
@@ -18,6 +19,14 @@
   --muted: #95a3b8;
   --border: #24354d;
   --shadow: 0 26px 60px -34px rgba(2, 6, 23, 0.8);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -48,6 +57,34 @@ h6 {
 
 * {
   border-color: var(--border);
+}
+
+input,
+select,
+textarea {
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+select option {
+  background-color: var(--surface);
+  color: var(--foreground);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+:root[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
 }
 
 @media (prefers-reduced-motion: no-preference) {

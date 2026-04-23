@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { canManageClasses, getApiAuthProfile } from "@/lib/api-auth";
 
 type IncomingQuestion = {
+  type: "mcq" | "checkbox" | "dropdown" | "identification" | "essay";
   content: string;
+  imageUrl?: string;
   options: string[];
+  optionFeedback?: Record<string, string>;
   correctAnswer: string;
+  correctAnswers?: string[];
+  required?: boolean;
   points: number;
 };
 
@@ -20,6 +25,128 @@ type QuizPayload = {
   closesAt: string;
   questions: IncomingQuestion[];
 };
+
+function normalizeString(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeStringArray(values: unknown) {
+  if (!Array.isArray(values)) {
+    return [] as string[];
+  }
+
+  return values
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
+function isOptionType(type: IncomingQuestion["type"]) {
+  return type === "mcq" || type === "checkbox" || type === "dropdown";
+}
+
+function normalizeCorrectAnswer(question: IncomingQuestion) {
+  if (question.type === "mcq" || question.type === "dropdown") {
+    const selected = normalizeStringArray(question.correctAnswers);
+    if (selected.length > 1) {
+      return JSON.stringify([...new Set(selected)]);
+    }
+
+    return selected[0] || normalizeString(question.correctAnswer);
+  }
+
+  if (question.type === "checkbox") {
+    const selected = normalizeStringArray(question.correctAnswers);
+    return JSON.stringify([...new Set(selected)]);
+  }
+
+  if (question.type === "identification") {
+    const listed = normalizeStringArray(question.correctAnswers);
+    const fallback = normalizeString(question.correctAnswer)
+      .split(/\r?\n|,|\|\|/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const candidates = [...new Set(listed.length > 0 ? listed : fallback)];
+
+    if (candidates.length > 1) {
+      return JSON.stringify(candidates);
+    }
+
+    return candidates[0] || "";
+  }
+
+  if (question.type === "essay") {
+    return "";
+  }
+
+  return normalizeString(question.correctAnswer);
+}
+
+function normalizeOptionFeedback(question: IncomingQuestion) {
+  if (!isOptionType(question.type)) {
+    return null;
+  }
+
+  const options = normalizeStringArray(question.options);
+  const feedback = question.optionFeedback && typeof question.optionFeedback === "object"
+    ? question.optionFeedback
+    : {};
+
+  const entries = options
+    .map((option) => {
+      const nextFeedback = normalizeString(feedback[option]);
+      return [option, nextFeedback] as const;
+    })
+    .filter(([, value]) => value.length > 0);
+
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function validateQuestion(question: IncomingQuestion) {
+  const type = question.type;
+  const content = normalizeString(question.content);
+  const imageUrl = normalizeString(question.imageUrl);
+  const options = normalizeStringArray(question.options);
+  const correctAnswer = normalizeString(question.correctAnswer);
+  const correctAnswers = normalizeStringArray(question.correctAnswers);
+
+  if (!content && !imageUrl) {
+    return "Each question needs text or an image.";
+  }
+
+  if (isOptionType(type) && options.length < 2) {
+    return "Option-based questions must have at least two options.";
+  }
+
+  if (type === "mcq" || type === "dropdown") {
+    const selected = correctAnswers.length > 0 ? correctAnswers : (correctAnswer ? [correctAnswer] : []);
+    if (selected.length === 0) {
+      return "At least one answer key must be selected from the question options.";
+    }
+
+    if (selected.some((value) => !options.includes(value))) {
+      return "Answer keys must be selected from the question options.";
+    }
+  }
+
+  if (type === "checkbox") {
+    if (correctAnswers.length === 0) {
+      return "Checkbox questions require at least one correct answer key.";
+    }
+
+    if (correctAnswers.some((value) => !options.includes(value))) {
+      return "Checkbox answer keys must come from the question options.";
+    }
+  }
+
+  if (type === "identification" && !correctAnswer) {
+    const alternatives = normalizeStringArray(question.correctAnswers);
+    if (alternatives.length === 0) {
+      return "Identification questions require an answer key.";
+    }
+  }
+
+  return null;
+}
 
 async function authorizeClassManager(auth: { profile: any; supabase: any }, classId: string) {
   const [{ data: classData }, { data: membership }] = await Promise.all([
@@ -129,6 +256,13 @@ export async function POST(request: NextRequest) {
 
   const totalScore = questions.reduce((sum, q) => sum + Math.max(1, Number(q.points || 1)), 0);
 
+  for (const question of questions) {
+    const validationError = validateQuestion(question);
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+  }
+
   const { data: quiz, error: quizError } = await auth.supabase
     .from("quizzes")
     .insert({
@@ -156,10 +290,13 @@ export async function POST(request: NextRequest) {
 
   const normalizedQuestions = questions.map((question) => ({
     quiz_id: quiz.id,
-    type: "mcq" as const,
-    content: String(question.content || "").trim(),
-    options: question.options,
-    correct_answer: String(question.correctAnswer || "").trim(),
+    type: question.type,
+    content: normalizeString(question.content) || null,
+    image_url: normalizeString(question.imageUrl) || null,
+    options: isOptionType(question.type) ? normalizeStringArray(question.options) : null,
+    option_feedback: normalizeOptionFeedback(question),
+    correct_answer: normalizeCorrectAnswer(question),
+    required: Boolean(question.required ?? true),
     points: Math.max(1, Number(question.points || 1)),
   }));
 
@@ -243,6 +380,13 @@ export async function PATCH(request: NextRequest) {
 
   const totalScore = questions.reduce((sum, q) => sum + Math.max(1, Number(q.points || 1)), 0);
 
+  for (const question of questions) {
+    const validationError = validateQuestion(question);
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+  }
+
   const { error: quizError } = await auth.supabase
     .from("quizzes")
     .update({
@@ -273,10 +417,13 @@ export async function PATCH(request: NextRequest) {
 
   const normalizedQuestions = questions.map((question) => ({
     quiz_id: quizId,
-    type: "mcq" as const,
-    content: String(question.content || "").trim(),
-    options: question.options,
-    correct_answer: String(question.correctAnswer || "").trim(),
+    type: question.type,
+    content: normalizeString(question.content) || null,
+    image_url: normalizeString(question.imageUrl) || null,
+    options: isOptionType(question.type) ? normalizeStringArray(question.options) : null,
+    option_feedback: normalizeOptionFeedback(question),
+    correct_answer: normalizeCorrectAnswer(question),
+    required: Boolean(question.required ?? true),
     points: Math.max(1, Number(question.points || 1)),
   }));
 

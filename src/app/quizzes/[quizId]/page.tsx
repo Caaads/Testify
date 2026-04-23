@@ -21,7 +21,7 @@ export default async function QuizPage({
       .single(),
     supabase
       .from("questions")
-      .select("id, type, content, options, points, correct_answer")
+      .select("id, type, content, options, points, correct_answer, image_url, required, option_feedback")
       .eq("quiz_id", quizId),
     supabase
       .from("submissions")
@@ -82,10 +82,19 @@ export default async function QuizPage({
           existingSubmission={existingSubmission}
           questions={(questions ?? []).map((question) => ({
             id: question.id,
+            type: question.type,
             content: question.content || "",
+            imageUrl: question.image_url || "",
             options: Array.isArray(question.options)
               ? (question.options as string[])
               : [],
+            required: question.required ?? true,
+            optionFeedback:
+              question.option_feedback &&
+              typeof question.option_feedback === "object" &&
+              !Array.isArray(question.option_feedback)
+                ? (question.option_feedback as Record<string, string>)
+                : {},
             points: question.points || 1,
             correctAnswer: question.correct_answer || "",
           }))}

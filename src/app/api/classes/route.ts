@@ -1,6 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canManageClasses, getApiAuthProfile } from "@/lib/api-auth";
 
+const SENIOR_HIGH_LEVELS = new Set(["Grade 11", "Grade 12"]);
+const COLLEGE_LEVELS = new Set([
+  "College 1st Year",
+  "College 2nd Year",
+  "College 3rd Year",
+  "College 4th Year",
+  "College 5th Year",
+]);
+
+function normalizeOptionalString(value: unknown) {
+  const next = String(value ?? "").trim();
+  return next || null;
+}
+
+function validateAcademicFields(yearLevel: string, strand: string | null, course: string | null) {
+  if (!yearLevel) {
+    return "Year level is required.";
+  }
+
+  const isSeniorHigh = SENIOR_HIGH_LEVELS.has(yearLevel);
+  const isCollege = COLLEGE_LEVELS.has(yearLevel);
+
+  if (isSeniorHigh && !strand) {
+    return "Strand is required for senior high classes.";
+  }
+
+  if (isCollege && !course) {
+    return "Course is required for college classes.";
+  }
+
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const auth = await getApiAuthProfile();
   if ("error" in auth) {
@@ -10,7 +43,7 @@ export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams.get("search");
   let query = auth.supabase
     .from("classes")
-    .select("id, name, description, teacher_id, year_level, created_at")
+    .select("id, name, description, teacher_id, year_level, strand, course, created_at")
     .order("created_at", { ascending: false });
 
   if (search) {
@@ -42,18 +75,30 @@ export async function POST(request: NextRequest) {
   const name = String(body.name ?? "").trim();
   const description = String(body.description ?? "").trim();
   const yearLevel = String(body.yearLevel ?? "").trim();
+  const strand = normalizeOptionalString(body.strand);
+  const course = normalizeOptionalString(body.course);
   const classPassword = String(body.classPassword ?? "").trim();
 
   if (!name) {
     return NextResponse.json({ error: "Class name is required." }, { status: 400 });
   }
 
+  const academicError = validateAcademicFields(yearLevel, strand, course);
+  if (academicError) {
+    return NextResponse.json({ error: academicError }, { status: 400 });
+  }
+
+  const isSeniorHigh = SENIOR_HIGH_LEVELS.has(yearLevel);
+  const isCollege = COLLEGE_LEVELS.has(yearLevel);
+
   const { data, error } = await auth.supabase
     .from("classes")
     .insert({
       name,
       description: description || null,
-      year_level: yearLevel || null,
+      year_level: yearLevel,
+      strand: isSeniorHigh ? strand : null,
+      course: isCollege ? course : null,
       class_password: classPassword || null,
       teacher_id: auth.profile.id,
     })
@@ -79,8 +124,83 @@ export async function PATCH(request: NextRequest) {
   const classId = String(body.classId ?? "").trim();
   const newOwnerId = String(body.newOwnerId ?? "").trim();
 
-  if (!classId || !newOwnerId) {
-    return NextResponse.json({ error: "Class ID and new owner are required." }, { status: 400 });
+  if (newOwnerId) {
+    if (!classId) {
+      return NextResponse.json({ error: "Class ID and new owner are required." }, { status: 400 });
+    }
+
+    const { data: classData } = await auth.supabase
+      .from("classes")
+      .select("id, teacher_id")
+      .eq("id", classId)
+      .maybeSingle();
+
+    if (!classData) {
+      return NextResponse.json({ error: "Class not found." }, { status: 404 });
+    }
+
+    if (!isAdmin && classData.teacher_id !== auth.profile.id) {
+      return NextResponse.json({ error: "Only the current owner can transfer ownership." }, { status: 403 });
+    }
+
+    if (newOwnerId === auth.profile.id) {
+      return NextResponse.json({ error: "Selected user is already the owner." }, { status: 400 });
+    }
+
+    const [{ data: memberData }, { data: profileData }] = await Promise.all([
+      auth.supabase
+        .from("class_students")
+        .select("member_role")
+        .eq("class_id", classId)
+        .eq("student_id", newOwnerId)
+        .maybeSingle(),
+      auth.supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", newOwnerId)
+        .maybeSingle(),
+    ]);
+
+    if (!memberData) {
+      return NextResponse.json({ error: "New owner must be a class member." }, { status: 400 });
+    }
+
+    if (profileData?.role !== "teacher" && profileData?.role !== "admin") {
+      return NextResponse.json({ error: "New owner must be a teacher or admin member." }, { status: 400 });
+    }
+
+    const ownerRole = profileData.role;
+
+    const { error: classUpdateError } = await auth.supabase
+      .from("classes")
+      .update({ teacher_id: newOwnerId })
+      .eq("id", classId);
+
+    if (classUpdateError) {
+      return NextResponse.json({ error: classUpdateError.message }, { status: 500 });
+    }
+
+    const { error: previousOwnerCleanupError } = await auth.supabase
+      .from("class_students")
+      .delete()
+      .eq("class_id", classId)
+      .eq("student_id", auth.profile.id);
+
+    if (previousOwnerCleanupError) {
+      return NextResponse.json({ error: previousOwnerCleanupError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ message: `Ownership transferred to ${ownerRole}.` }, { status: 200 });
+  }
+
+  const name = String(body.name ?? "").trim();
+  const description = String(body.description ?? "").trim();
+  const yearLevel = String(body.yearLevel ?? "").trim();
+  const strand = normalizeOptionalString(body.strand);
+  const course = normalizeOptionalString(body.course);
+
+  if (!classId || !name) {
+    return NextResponse.json({ error: "Class ID and class name are required." }, { status: 400 });
   }
 
   const { data: classData } = await auth.supabase
@@ -94,57 +214,33 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (!isAdmin && classData.teacher_id !== auth.profile.id) {
-    return NextResponse.json({ error: "Only the current owner can transfer ownership." }, { status: 403 });
+    return NextResponse.json({ error: "Only the class owner can edit this class." }, { status: 403 });
   }
 
-  if (newOwnerId === auth.profile.id) {
-    return NextResponse.json({ error: "Selected user is already the owner." }, { status: 400 });
+  const academicError = validateAcademicFields(yearLevel, strand, course);
+  if (academicError) {
+    return NextResponse.json({ error: academicError }, { status: 400 });
   }
 
-  const [{ data: memberData }, { data: profileData }] = await Promise.all([
-    auth.supabase
-      .from("class_students")
-      .select("member_role")
-      .eq("class_id", classId)
-      .eq("student_id", newOwnerId)
-      .maybeSingle(),
-    auth.supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", newOwnerId)
-      .maybeSingle(),
-  ]);
-
-  if (!memberData) {
-    return NextResponse.json({ error: "New owner must be a class member." }, { status: 400 });
-  }
-
-  if (profileData?.role !== "teacher" && profileData?.role !== "admin") {
-    return NextResponse.json({ error: "New owner must be a teacher or admin member." }, { status: 400 });
-  }
-
-  const ownerRole = profileData.role;
+  const isSeniorHigh = SENIOR_HIGH_LEVELS.has(yearLevel);
+  const isCollege = COLLEGE_LEVELS.has(yearLevel);
 
   const { error: classUpdateError } = await auth.supabase
     .from("classes")
-    .update({ teacher_id: newOwnerId })
+    .update({
+      name,
+      description: description || null,
+      year_level: yearLevel,
+      strand: isSeniorHigh ? strand : null,
+      course: isCollege ? course : null,
+    })
     .eq("id", classId);
 
   if (classUpdateError) {
     return NextResponse.json({ error: classUpdateError.message }, { status: 500 });
   }
 
-  const { error: previousOwnerCleanupError } = await auth.supabase
-    .from("class_students")
-    .delete()
-    .eq("class_id", classId)
-    .eq("student_id", auth.profile.id);
-
-  if (previousOwnerCleanupError) {
-    return NextResponse.json({ error: previousOwnerCleanupError.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ message: `Ownership transferred to ${ownerRole}.` }, { status: 200 });
+  return NextResponse.json({ message: "Class updated." }, { status: 200 });
 }
 
 export async function DELETE(request: NextRequest) {

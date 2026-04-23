@@ -142,7 +142,6 @@ export function AppShell({
   const [showClassesDropdown, setShowClassesDropdown] = useState(false);
   const [pingMs, setPingMs] = useState<number | null>(null);
   const [pingOnline, setPingOnline] = useState(true);
-  const [headerSearch, setHeaderSearch] = useState(classSearchQuery);
 
   useEffect(() => {
     const supabase = createClient();
@@ -283,14 +282,13 @@ export function AppShell({
                   <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
                 <input
-                  value={headerSearch}
+                  defaultValue={classSearchQuery}
                   onChange={(event) => {
                     const nextValue = event.target.value;
-                    setHeaderSearch(nextValue);
                     setClassSearchQuery(nextValue);
                   }}
-                  placeholder={pathname.startsWith("/classes/") ? "Search tests, announcements, members" : "Search classes"}
-                  className="w-28 bg-transparent text-sm text-[var(--foreground)] outline-none"
+                  placeholder={pathname.startsWith("/classes/") ? "Search tests, announcements, members" : ""}
+                  className="w-28 bg-transparent text-sm outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 [appearance:textfield] [box-shadow:none] [-webkit-tap-highlight-color:transparent]"
                 />
               </label>
               <div

@@ -11,7 +11,7 @@ export default async function ClassesPage() {
   const [{ data: classes }, { data: myMemberships }] = await Promise.all([
     supabase
       .from("classes")
-      .select("id, name, description, year_level, teacher_id, created_at")
+      .select("id, name, description, year_level, strand, course, teacher_id, created_at")
       .order("created_at", { ascending: false }),
     supabase
       .from("class_students")

@@ -6,6 +6,35 @@ type AnswerPayload = {
   answer: string;
 };
 
+function parseCheckboxAnswer(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [] as string[];
+  }
+}
+
+function parseExpectedAnswers(value: string) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return [] as string[];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item).trim()).filter(Boolean);
+    }
+  } catch {
+    // Treat as single text answer.
+  }
+
+  return [trimmed];
+}
+
 export async function POST(request: NextRequest) {
   const auth = await getApiAuthProfile();
   if ("error" in auth) {
@@ -81,7 +110,7 @@ export async function POST(request: NextRequest) {
 
   const { data: questions, error: questionError } = await auth.supabase
     .from("questions")
-    .select("id, type, correct_answer, points")
+    .select("id, type, correct_answer, points, required")
     .eq("quiz_id", quizId);
 
   if (questionError || !questions) {
@@ -93,16 +122,56 @@ export async function POST(request: NextRequest) {
 
   const answerMap = new Map(answers.map((entry) => [entry.questionId, String(entry.answer || "")]));
 
-  let score = 0;
   for (const question of questions) {
-    if (question.type !== "mcq") {
+    if (!question.required) {
       continue;
     }
 
-    const response = (answerMap.get(question.id) || "").trim().toLowerCase();
-    const expected = (question.correct_answer || "").trim().toLowerCase();
+    const response = String(answerMap.get(question.id) || "");
+    if (question.type === "checkbox") {
+      if (parseCheckboxAnswer(response).length === 0) {
+        return NextResponse.json({ error: "Please answer all required questions." }, { status: 400 });
+      }
+      continue;
+    }
 
-    if (response && expected && response === expected) {
+    if (response.trim().length === 0) {
+      return NextResponse.json({ error: "Please answer all required questions." }, { status: 400 });
+    }
+  }
+
+  let score = 0;
+  for (const question of questions) {
+    const rawResponse = String(answerMap.get(question.id) || "");
+    const expected = String(question.correct_answer || "");
+
+    if (question.type === "essay") {
+      continue;
+    }
+
+    if (question.type === "checkbox") {
+      const expectedValues = parseCheckboxAnswer(expected).map((value) => value.toLowerCase()).sort();
+      const responseValues = parseCheckboxAnswer(rawResponse).map((value) => value.toLowerCase()).sort();
+
+      if (
+        expectedValues.length > 0 &&
+        expectedValues.length === responseValues.length &&
+        expectedValues.every((value, index) => value === responseValues[index])
+      ) {
+        score += Number(question.points || 1);
+      }
+
+      continue;
+    }
+
+    const normalizedResponse = rawResponse.trim().toLowerCase();
+    const normalizedExpectedCandidates = parseExpectedAnswers(expected).map((value) => value.toLowerCase());
+
+    if (
+      normalizedResponse &&
+      normalizedExpectedCandidates.length > 0 &&
+      normalizedExpectedCandidates.includes(normalizedResponse)
+    ) {
       score += Number(question.points || 1);
     }
   }

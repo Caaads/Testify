@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 
 type Question = {
   id: string;
+  type: string;
   content: string;
+  imageUrl: string;
   options: string[];
+  required: boolean;
+  optionFeedback: Record<string, string>;
   points: number;
   correctAnswer: string;
 };
@@ -15,6 +19,70 @@ type SavedAnswer = {
   questionId: string;
   answer: string;
 };
+
+function parseCheckboxAnswer(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item)).filter(Boolean)
+      : [];
+  } catch {
+    return [] as string[];
+  }
+}
+
+function formatAnswerForDisplay(questionType: string, value: string) {
+  if (!value) {
+    return "No answer";
+  }
+
+  if (questionType === "checkbox") {
+    const parsed = parseCheckboxAnswer(value);
+    return parsed.length > 0 ? parsed.join(", ") : "No answer";
+  }
+
+  return value;
+}
+
+function formatExpectedAnswer(questionType: string, value: string) {
+  if (!value) {
+    return "N/A";
+  }
+
+  if (questionType === "checkbox") {
+    return formatAnswerForDisplay("checkbox", value);
+  }
+
+  if (questionType === "identification") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        const entries = parsed.map((item) => String(item).trim()).filter(Boolean);
+        return entries.length > 0 ? entries.join(" / ") : "N/A";
+      }
+    } catch {
+      // Single answer text.
+    }
+  }
+
+  return value;
+}
+
+function getOptionFeedback(question: Question, value: string) {
+  if (!value) {
+    return null;
+  }
+
+  if (question.type === "checkbox") {
+    const selected = parseCheckboxAnswer(value);
+    const feedback = selected
+      .map((option) => question.optionFeedback[option])
+      .filter(Boolean);
+    return feedback.length > 0 ? feedback.join(" | ") : null;
+  }
+
+  return question.optionFeedback[value] || null;
+}
 
 export function QuizClient({
   quizId,
@@ -222,6 +290,24 @@ export function QuizClient({
       return;
     }
 
+    const missingRequired = randomizedQuestions.find((question) => {
+      if (!question.required) {
+        return false;
+      }
+
+      const value = answers[question.id] || "";
+      if (question.type === "checkbox") {
+        return parseCheckboxAnswer(value).length === 0;
+      }
+
+      return value.trim().length === 0;
+    });
+
+    if (missingRequired) {
+      setMessage("Please answer all required questions before submitting.");
+      return;
+    }
+
     const payload = randomizedQuestions.map((question) => ({
       questionId: question.id,
       answer: answers[question.id] || "",
@@ -311,20 +397,71 @@ export function QuizClient({
         </header>
 
         {questions.map((question, index) => {
-          const studentAnswer = reviewAnswers.get(question.id) || "No answer";
-          const isCorrect =
-            studentAnswer !== "No answer" &&
-            studentAnswer.trim().toLowerCase() === question.correctAnswer.trim().toLowerCase();
+          const rawStudentAnswer = reviewAnswers.get(question.id) || "";
+          const studentAnswer = formatAnswerForDisplay(question.type, rawStudentAnswer);
+          const isCorrect = (() => {
+            if (question.type === "essay") {
+              return false;
+            }
+
+            if (question.type === "checkbox") {
+              const expected = parseCheckboxAnswer(question.correctAnswer).sort();
+              const actual = parseCheckboxAnswer(rawStudentAnswer).sort();
+              if (expected.length === 0 || actual.length === 0 || expected.length !== actual.length) {
+                return false;
+              }
+
+              return expected.every((value, idx) => value.toLowerCase() === actual[idx].toLowerCase());
+            }
+
+            if (question.type === "identification") {
+              const normalizedResponse = rawStudentAnswer.trim().toLowerCase();
+              if (!normalizedResponse) {
+                return false;
+              }
+
+              try {
+                const parsed = JSON.parse(question.correctAnswer || "[]");
+                if (Array.isArray(parsed)) {
+                  return parsed
+                    .map((item) => String(item).trim().toLowerCase())
+                    .filter(Boolean)
+                    .includes(normalizedResponse);
+                }
+              } catch {
+                // Fallback to single answer compare.
+              }
+            }
+
+            return (
+              rawStudentAnswer.trim().length > 0 &&
+              rawStudentAnswer.trim().toLowerCase() === question.correctAnswer.trim().toLowerCase()
+            );
+          })();
+
+          const correctAnswerLabel =
+            formatExpectedAnswer(question.type, question.correctAnswer);
+          const optionFeedback = getOptionFeedback(question, rawStudentAnswer);
 
           return (
             <article key={question.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <p className="text-sm font-semibold text-zinc-900">
                 {index + 1}. {question.content}
               </p>
+              {question.imageUrl ? (
+                <img
+                  src={question.imageUrl}
+                  alt={`Question ${index + 1}`}
+                  className="mt-2 max-h-64 w-full rounded-lg border border-zinc-200 object-contain"
+                />
+              ) : null}
               <p className="mt-2 text-sm text-zinc-700">Your answer: {studentAnswer}</p>
-              <p className="text-sm text-zinc-700">Correct answer: {question.correctAnswer || "N/A"}</p>
+              {optionFeedback ? (
+                <p className="text-sm text-sky-700">Feedback: {optionFeedback}</p>
+              ) : null}
+              <p className="text-sm text-zinc-700">Correct answer: {correctAnswerLabel}</p>
               <p className={`mt-1 text-xs font-semibold ${isCorrect ? "text-emerald-700" : "text-rose-700"}`}>
-                {isCorrect ? "Correct" : "Incorrect"}
+                {question.type === "essay" ? "Manual review" : isCorrect ? "Correct" : "Incorrect"}
               </p>
             </article>
           );
@@ -396,24 +533,108 @@ export function QuizClient({
               <p className="text-sm font-semibold text-zinc-900">
                 {index + 1}. {question.content}
               </p>
+              {question.required ? (
+                <p className="mt-1 text-xs font-semibold text-rose-700">Required</p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-500">Optional</p>
+              )}
+              {question.imageUrl ? (
+                <img
+                  src={question.imageUrl}
+                  alt={`Question ${index + 1}`}
+                  className="mt-2 max-h-64 w-full rounded-lg border border-zinc-200 object-contain"
+                />
+              ) : null}
               <p className="mt-1 text-xs text-zinc-500">Points: {question.points}</p>
 
-              <div className="mt-3 space-y-2">
-                {question.options.map((option) => (
-                  <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 p-2 text-sm">
-                    <input
-                      type="radio"
-                      name={question.id}
-                      value={option}
-                      checked={answers[question.id] === option}
-                      onChange={(e) =>
-                        setAnswers((prev) => ({ ...prev, [question.id]: e.target.value }))
-                      }
-                    />
-                    <span>{option}</span>
-                  </label>
-                ))}
-              </div>
+              {(question.type === "mcq" || question.type === "dropdown") && question.options.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {question.type === "mcq"
+                    ? question.options.map((option, optionIndex) => (
+                        <label key={`${question.id}-mcq-${optionIndex}`} className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 p-2 text-sm">
+                          <input
+                            type="radio"
+                            name={question.id}
+                            value={option}
+                            checked={answers[question.id] === option}
+                            onChange={(e) =>
+                              setAnswers((prev) => ({ ...prev, [question.id]: e.target.value }))
+                            }
+                            className="h-4 w-4 border border-zinc-400 bg-transparent"
+                          />
+                          <span>{option}</span>
+                        </label>
+                      ))
+                    : (
+                        <select
+                          value={answers[question.id] || ""}
+                          onChange={(e) =>
+                            setAnswers((prev) => ({ ...prev, [question.id]: e.target.value }))
+                          }
+                          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        >
+                          <option value="">Select answer</option>
+                          {question.options.map((option, optionIndex) => (
+                            <option key={`${question.id}-dropdown-${optionIndex}`} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                </div>
+              ) : null}
+
+              {question.type === "checkbox" ? (
+                <div className="mt-3 space-y-2">
+                  {question.options.map((option, optionIndex) => {
+                    const selected = parseCheckboxAnswer(answers[question.id] || "[]");
+                    const checked = selected.includes(option);
+                    return (
+                      <label key={`${question.id}-check-${optionIndex}`} className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 p-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const shouldAdd = e.target.checked;
+                            const nextSelected = shouldAdd
+                              ? [...selected, option]
+                              : selected.filter((value) => value !== option);
+
+                            setAnswers((prev) => ({
+                              ...prev,
+                              [question.id]: JSON.stringify(nextSelected),
+                            }));
+                          }}
+                          className="h-4 w-4 rounded border border-zinc-400 bg-transparent"
+                        />
+                        <span>{option}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {question.type === "identification" ? (
+                <input
+                  value={answers[question.id] || ""}
+                  onChange={(e) =>
+                    setAnswers((prev) => ({ ...prev, [question.id]: e.target.value }))
+                  }
+                  placeholder="Type your answer"
+                  className="mt-3 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                />
+              ) : null}
+
+              {question.type === "essay" ? (
+                <textarea
+                  value={answers[question.id] || ""}
+                  onChange={(e) =>
+                    setAnswers((prev) => ({ ...prev, [question.id]: e.target.value }))
+                  }
+                  placeholder="Write your essay answer"
+                  className="mt-3 min-h-28 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                />
+              ) : null}
             </article>
           ))}
 

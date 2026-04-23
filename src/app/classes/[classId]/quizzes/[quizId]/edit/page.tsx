@@ -3,6 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { requireProfile } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { CreateQuizClient } from "../../create/view";
+import type { BuilderQuestionType, QuizQuestion } from "../../create/view";
 
 export default async function EditQuizPage({
   params,
@@ -31,7 +32,7 @@ export default async function EditQuizPage({
       .single(),
     supabase
       .from("questions")
-      .select("id, content, options, correct_answer, points")
+      .select("id, type, content, options, correct_answer, image_url, required, option_feedback, points")
       .eq("quiz_id", quizId)
       .order("id", { ascending: true }),
   ]);
@@ -45,16 +46,56 @@ export default async function EditQuizPage({
     notFound();
   }
 
-  const initialQuestions = (questions ?? []).map((question) => {
+  const initialQuestions: QuizQuestion[] = (questions ?? []).map((question) => {
     const options = Array.isArray(question.options) ? (question.options as string[]) : [];
+    const optionFeedbackMap =
+      question.option_feedback && typeof question.option_feedback === "object" && !Array.isArray(question.option_feedback)
+        ? (question.option_feedback as Record<string, string>)
+        : {};
+    const parsedAnswerKeys = (() => {
+      try {
+        const parsed = JSON.parse(question.correct_answer || "[]");
+        return Array.isArray(parsed)
+          ? parsed.map((value) => String(value)).filter(Boolean)
+          : [];
+      } catch {
+        return [] as string[];
+      }
+    })();
+
+    const type: BuilderQuestionType = (() => {
+      const nextType = String(question.type || "mcq");
+      if (
+        nextType === "mcq" ||
+        nextType === "checkbox" ||
+        nextType === "dropdown" ||
+        nextType === "identification" ||
+        nextType === "essay"
+      ) {
+        return nextType as BuilderQuestionType;
+      }
+      return "mcq";
+    })();
 
     return {
       content: question.content || "",
-      optionA: options[0] || "",
-      optionB: options[1] || "",
-      optionC: options[2] || "",
-      optionD: options[3] || "",
-      correctAnswer: question.correct_answer || "",
+      type,
+      imageUrl: question.image_url || "",
+      options:
+        type === "mcq" || type === "checkbox" || type === "dropdown"
+          ? options.length >= 2
+            ? options
+            : ["", ""]
+          : [],
+      optionFeedbacks:
+        type === "mcq" || type === "checkbox" || type === "dropdown"
+          ? (options.length >= 2 ? options : ["", ""]).map((option) => optionFeedbackMap[option] || "")
+          : [],
+      correctAnswers:
+        type === "mcq" || type === "checkbox" || type === "dropdown" || type === "identification"
+          ? (parsedAnswerKeys.length > 0 ? parsedAnswerKeys : question.correct_answer ? [question.correct_answer] : [])
+          : [],
+      required: question.required ?? true,
       points: question.points || 1,
     };
   });
