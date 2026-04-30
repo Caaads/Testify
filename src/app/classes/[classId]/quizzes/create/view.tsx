@@ -87,10 +87,20 @@ export function CreateQuizClient({
 
   const [quizTitle, setQuizTitle] = useState(quiz?.title ?? "");
   const [quizTermId, setQuizTermId] = useState(quiz?.term_id ?? terms[0]?.id ?? "");
-  const [duration, setDuration] = useState(quiz?.duration ?? 15);
+  
+  // Convert duration (minutes) to hours, minutes, seconds
+  const initialDurationMinutes = quiz?.duration ?? 15;
+  const initialHours = Math.floor(initialDurationMinutes / 60);
+  const initialMinutes = initialDurationMinutes % 60;
+  const [durationHours, setDurationHours] = useState(initialHours);
+  const [durationMinutes, setDurationMinutes] = useState(initialMinutes);
+  const [durationSeconds, setDurationSeconds] = useState(0);
+  const duration = durationHours * 60 + durationMinutes + (durationSeconds > 0 ? 1 : 0);
+  
   const [allowAutoScore, setAllowAutoScore] = useState(quiz?.allow_auto_score ?? true);
   const [allowReview, setAllowReview] = useState(quiz?.allow_review ?? false);
   const [quizPassword, setQuizPassword] = useState(quiz?.quiz_password ?? "");
+  const [showQuizPassword, setShowQuizPassword] = useState(false);
   const [opensAt, setOpensAt] = useState(quiz?.opens_at ? quiz.opens_at.slice(0, 16) : "");
   const [closesAt, setClosesAt] = useState(quiz?.closes_at ? quiz.closes_at.slice(0, 16) : "");
 
@@ -345,14 +355,44 @@ export function CreateQuizClient({
                 </option>
               ))}
             </select>
-            <input
-              type="number"
-              min={1}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value) || 1)}
-              placeholder="Duration (minutes)"
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            />
+            <div className="sm:col-span-2 rounded-lg border border-zinc-300 p-3">
+              <label className="mb-3 block text-sm font-medium text-zinc-700">Test Duration (HH:MM:SS)</label>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-zinc-600 text-center">Hours</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={durationHours}
+                    onChange={(e) => setDurationHours(Math.min(23, Math.max(0, Number(e.target.value) || 0)))}
+                    className="rounded-lg border border-zinc-300 px-2 py-2 text-sm text-center font-semibold"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-zinc-600 text-center">Minutes</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
+                    className="rounded-lg border border-zinc-300 px-2 py-2 text-sm text-center font-semibold"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-zinc-600 text-center">Seconds</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={durationSeconds}
+                    onChange={(e) => setDurationSeconds(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
+                    className="rounded-lg border border-zinc-300 px-2 py-2 text-sm text-center font-semibold"
+                  />
+                </div>
+              </div>
+            </div>
             <label className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm">
               <input type="checkbox" checked={allowAutoScore} onChange={(e) => setAllowAutoScore(e.target.checked)} />
               Enable auto score visibility
@@ -361,13 +401,35 @@ export function CreateQuizClient({
               <input type="checkbox" checked={allowReview} onChange={(e) => setAllowReview(e.target.checked)} />
               Allow student review after submit
             </label>
-            <input
-              type="password"
-              value={quizPassword}
-              onChange={(e) => setQuizPassword(e.target.value)}
-              placeholder="Optional test password"
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            />
+            <div className="flex items-center rounded-lg border border-zinc-300 pr-2 focus-within:border-sky-400">
+              <input
+                type={showQuizPassword ? "text" : "password"}
+                value={quizPassword}
+                onChange={(e) => setQuizPassword(e.target.value)}
+                placeholder="Optional test password"
+                className="w-full rounded-lg border-0 px-3 py-2 text-sm focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowQuizPassword((prev) => !prev)}
+                className="rounded-md p-1 text-zinc-600 hover:bg-zinc-100"
+                aria-label={showQuizPassword ? "Hide password" : "Show password"}
+              >
+                {showQuizPassword ? (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                    <path d="M3 3l18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M10.5 10.5a3 3 0 0 0 4.24 4.24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5.5 0 9.5 4 10.5 8-0.38 1.49-1.16 2.91-2.22 4.14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M6.23 6.23C4.56 7.47 3.33 9.13 2.5 12c1 4 5 8 9.5 8 1.85 0 3.53-0.45 5-1.23" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                    <path d="M2.5 12c1-4 5-8 9.5-8s8.5 4 9.5 8c-1 4-5 8-9.5 8s-8.5-4-9.5-8z" stroke="currentColor" strokeWidth="2" />
+                    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+                  </svg>
+                )}
+              </button>
+            </div>
             <input
               type="datetime-local"
               value={opensAt}

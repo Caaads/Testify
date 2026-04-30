@@ -54,6 +54,7 @@ export function ClassDetailClient({
   role,
   canManage,
   isOwner,
+  className,
   canLeave,
   classDescription,
   classCreatorName,
@@ -67,6 +68,7 @@ export function ClassDetailClient({
   role: UserRole;
   canManage: boolean;
   isOwner: boolean;
+  className: string;
   canLeave: boolean;
   classDescription: string;
   classCreatorName: string;
@@ -445,13 +447,16 @@ export function ClassDetailClient({
       <section className="grid gap-4 lg:grid-cols-1">
         <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <h3 className="text-lg font-semibold text-zinc-900">Latest announcements</h3>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-3">
             {filteredAnnouncements.map((item) => (
-              <div key={item.id} className="rounded-lg border border-zinc-200 p-2 text-sm text-zinc-700">
-                <p>{item.content}</p>
-                <p className="mt-1 text-xs text-zinc-500">{new Date(item.created_at).toLocaleString()}</p>
-                <p className="text-xs text-zinc-500">Created by: {item.creator_name || classCreatorName}</p>
-              </div>
+              <article key={item.id} className="rounded-2xl border border-sky-500/20 bg-[#0b1f56] p-4 text-white shadow-sm">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-cyan-100">{className}</p>
+                  <p className="mt-1 text-xs text-white/70">by {item.creator_name || classCreatorName}</p>
+                  <p className="mt-3 text-sm text-white/90">{item.content}</p>
+                  <p className="mt-3 text-xs text-white/60">{new Date(item.created_at).toLocaleString()}</p>
+                </div>
+              </article>
             ))}
             {filteredAnnouncements.length === 0 ? <p className="text-sm text-zinc-500">No announcements found.</p> : null}
           </div>

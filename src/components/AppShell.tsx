@@ -287,8 +287,8 @@ export function AppShell({
                     const nextValue = event.target.value;
                     setClassSearchQuery(nextValue);
                   }}
-                  placeholder={pathname.startsWith("/classes/") ? "Search tests, announcements, members" : ""}
-                  className="w-28 bg-transparent text-sm outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 [appearance:textfield] [box-shadow:none] [-webkit-tap-highlight-color:transparent]"
+                  placeholder={pathname.startsWith("/classes/") ? "Search tests, announcements, members" : "Search classes"}
+                  className="w-28 bg-transparent text-sm text-[var(--foreground)] outline-none"
                 />
               </label>
               <div

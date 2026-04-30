@@ -11,7 +11,17 @@ type Announcement = {
   creator_name?: string | null;
 };
 
-export function ClassAnnouncementsClient({ classId, canPost }: { classId: string; canPost: boolean }) {
+export function ClassAnnouncementsClient({
+  classId,
+  className,
+  classTeacherName,
+  canPost,
+}: {
+  classId: string;
+  className: string;
+  classTeacherName: string;
+  canPost: boolean;
+}) {
   const searchQuery = useClassSearchQuery();
   const [content, setContent] = useState("");
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -176,10 +186,13 @@ export function ClassAnnouncementsClient({ classId, canPost }: { classId: string
 
       <section className="space-y-3">
         {filteredAnnouncements.map((item) => (
-          <article key={item.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="text-sm text-zinc-700">{item.content}</p>
-            <p className="mt-2 text-xs text-zinc-500">{new Date(item.created_at).toLocaleString()}</p>
-            <p className="text-xs text-zinc-500">Created by: {item.creator_name || "Unknown creator"}</p>
+          <article key={item.id} className="rounded-2xl border border-sky-500/20 bg-[#0b1f56] p-4 text-white shadow-sm">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-cyan-100">{className}</p>
+              <p className="mt-1 text-xs text-white/70">by {item.creator_name || classTeacherName || "Unknown teacher"}</p>
+              <p className="mt-3 text-sm text-white/90">{item.content}</p>
+              <p className="mt-3 text-xs text-white/60">{new Date(item.created_at).toLocaleString()}</p>
+            </div>
             {canPost ? (
               <div className="mt-3 flex items-center gap-2">
                 <button

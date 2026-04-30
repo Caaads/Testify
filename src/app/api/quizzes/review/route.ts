@@ -144,3 +144,58 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ message: "Submission score updated." });
 }
+
+export async function POST(request: NextRequest) {
+  const auth = await getApiAuthProfile();
+  if ("error" in auth) {
+    return auth.error;
+  }
+
+  if (auth.profile.role !== "teacher" && auth.profile.role !== "admin") {
+    return NextResponse.json({ error: "Not allowed." }, { status: 403 });
+  }
+
+  const body = await request.json();
+  const submissionId = String(body.submissionId ?? "").trim();
+  const action = String(body.action ?? "").trim();
+
+  if (!submissionId || action !== "return") {
+    return NextResponse.json(
+      { error: "Submission ID and action are required." },
+      { status: 400 },
+    );
+  }
+
+  const { data: submission } = await auth.supabase
+    .from("submissions")
+    .select("id, quiz_id")
+    .eq("id", submissionId)
+    .single();
+
+  if (!submission) {
+    return NextResponse.json({ error: "Submission not found." }, { status: 404 });
+  }
+
+  const permission = await canManageQuiz(
+    auth.supabase,
+    submission.quiz_id,
+    auth.profile.id,
+    auth.profile.role,
+  );
+
+  if (!permission.allowed) {
+    return NextResponse.json({ error: "Not allowed." }, { status: 403 });
+  }
+
+  // Delete the submission so the student can retake the quiz
+  const { error } = await auth.supabase
+    .from("submissions")
+    .delete()
+    .eq("id", submissionId);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ message: "Submission returned to student. They can now retake the quiz." });
+}

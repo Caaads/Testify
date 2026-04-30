@@ -33,6 +33,7 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
   const [submissions, setSubmissions] = useState<ReviewSubmission[]>([]);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [returningSubmissionId, setReturningSubmissionId] = useState<string | null>(null);
 
   async function loadData() {
     const response = await fetch(`/api/quizzes/review?quizId=${quizId}`);
@@ -104,6 +105,52 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
     void loadData();
   }
 
+  async function returnToStudent(submissionId: string) {
+    const response = await fetch("/api/quizzes/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ submissionId, action: "return" }),
+    });
+
+    const data = (await response.json()) as { error?: string; message?: string };
+    if (!response.ok) {
+      setMessage(data.error || "Unable to return submission.");
+      return;
+    }
+
+    setMessage(data.message || "Submission returned to student.");
+    setReturningSubmissionId(null);
+    void loadData();
+  }
+
+  const stats = useMemo(() => {
+    const answers = Array.isArray(selectedSubmission?.answers)
+      ? (selectedSubmission.answers as AnswerEntry[])
+      : [];
+
+    let passed = 0;
+    let failed = 0;
+    let notAttempted = questions.length - answers.length;
+
+    answers.forEach((entry) => {
+      const question = questionMap.get(entry.questionId);
+      const expected = (question?.correct_answer || "").trim();
+      const actual = (entry.answer || "").trim();
+      const isCorrect =
+        expected.length > 0 &&
+        actual.length > 0 &&
+        actual.toLowerCase() === expected.toLowerCase();
+
+      if (isCorrect) {
+        passed++;
+      } else {
+        failed++;
+      }
+    });
+
+    return { passed, failed, notAttempted, total: questions.length };
+  }, [selectedSubmission, questions, questionMap]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -154,38 +201,102 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
                       Submitted: {new Date(selectedSubmission.submitted_at).toLocaleString()} | Status: {selectedSubmission.status}
                     </p>
                   </div>
-                  <form
-                    className="flex items-center gap-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const formData = new FormData(event.currentTarget);
-                      const score = Number(formData.get("score") ?? 0);
-                      const status = String(formData.get("status") ?? "graded");
-                      void saveScore(selectedSubmission.id, score, status);
-                    }}
-                  >
-                    <input
-                      name="score"
-                      type="number"
-                      min={0}
-                      defaultValue={selectedSubmission.score}
-                      className="w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                  <div className="flex items-center gap-2">
+                    <form
+                      className="flex items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const formData = new FormData(event.currentTarget);
+                        const score = Number(formData.get("score") ?? 0);
+                        const status = String(formData.get("status") ?? "graded");
+                        void saveScore(selectedSubmission.id, score, status);
+                      }}
+                    >
+                      <input
+                        name="score"
+                        type="number"
+                        min={0}
+                        defaultValue={selectedSubmission.score}
+                        className="w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                      <select
+                        name="status"
+                        defaultValue={selectedSubmission.status === "ungraded" ? "ungraded" : "graded"}
+                        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      >
+                        <option value="graded">Graded</option>
+                        <option value="ungraded">Ungraded</option>
+                      </select>
+                      <button
+                        type="submit"
+                        className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                      >
+                        Save
+                      </button>
+                    </form>
+                    {returningSubmissionId === selectedSubmission.id ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-zinc-600">Return to student?</p>
+                        <button
+                          type="button"
+                          onClick={() => void returnToStudent(selectedSubmission.id)}
+                          className="rounded-lg bg-amber-600 px-2 py-1 text-xs font-semibold text-white hover:bg-amber-700"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReturningSubmissionId(null)}
+                          className="rounded-lg bg-zinc-300 px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-400"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setReturningSubmissionId(selectedSubmission.id)}
+                        className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                      >
+                        Return to Student
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-lg bg-gradient-to-r from-zinc-50 to-zinc-100 p-4">
+                  <h4 className="mb-3 text-sm font-semibold text-zinc-900">Performance Summary</h4>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg bg-white p-3 text-center">
+                      <p className="text-2xl font-bold text-emerald-600">{stats.passed}</p>
+                      <p className="text-xs font-medium text-zinc-600">Passed</p>
+                      <p className="text-[10px] text-zinc-500">{stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : 0}%</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-3 text-center">
+                      <p className="text-2xl font-bold text-rose-600">{stats.failed}</p>
+                      <p className="text-xs font-medium text-zinc-600">Failed</p>
+                      <p className="text-[10px] text-zinc-500">{stats.total > 0 ? Math.round((stats.failed / stats.total) * 100) : 0}%</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-3 text-center">
+                      <p className="text-2xl font-bold text-zinc-400">{stats.notAttempted}</p>
+                      <p className="text-xs font-medium text-zinc-600">Not Attempted</p>
+                      <p className="text-[10px] text-zinc-500">{stats.total > 0 ? Math.round((stats.notAttempted / stats.total) * 100) : 0}%</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex gap-1">
+                    <div
+                      className="h-2 rounded-full bg-emerald-500"
+                      style={{ width: `${stats.total > 0 ? (stats.passed / stats.total) * 100 : 0}%` }}
                     />
-                    <select
-                      name="status"
-                      defaultValue={selectedSubmission.status === "ungraded" ? "ungraded" : "graded"}
-                      className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                    >
-                      <option value="graded">Graded</option>
-                      <option value="ungraded">Ungraded</option>
-                    </select>
-                    <button
-                      type="submit"
-                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                    >
-                      Save
-                    </button>
-                  </form>
+                    <div
+                      className="h-2 rounded-full bg-rose-500"
+                      style={{ width: `${stats.total > 0 ? (stats.failed / stats.total) * 100 : 0}%` }}
+                    />
+                    <div
+                      className="h-2 rounded-full bg-zinc-300"
+                      style={{ width: `${stats.total > 0 ? (stats.notAttempted / stats.total) * 100 : 0}%` }}
+                    />
+                  </div>
                 </div>
 
                 <div className="mt-3 space-y-2">

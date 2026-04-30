@@ -176,9 +176,18 @@ create table if not exists questions (
   content text,
   options jsonb,
   correct_answer text,
+  option_feedback jsonb,
+  required boolean default true,
   image_url text,
   points integer default 1
 );
+
+alter table questions add column if not exists option_feedback jsonb;
+alter table questions add column if not exists required boolean default true;
+
+update questions
+set required = true
+where required is null;
 
 create table if not exists submissions (
   id uuid primary key default uuid_generate_v4(),

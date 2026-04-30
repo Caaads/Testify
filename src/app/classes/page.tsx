@@ -8,7 +8,7 @@ export default async function ClassesPage() {
   const profile = await requireProfile();
   const supabase = await createServerSupabaseClient();
 
-  const [{ data: classes }, { data: myMemberships }] = await Promise.all([
+  const [{ data: classes }, { data: myMemberships }, { data: myJoinRequests }] = await Promise.all([
     supabase
       .from("classes")
       .select("id, name, description, year_level, strand, course, teacher_id, created_at")
@@ -17,6 +17,11 @@ export default async function ClassesPage() {
       .from("class_students")
       .select("class_id, member_role")
       .eq("student_id", profile.id),
+    supabase
+      .from("class_join_requests")
+      .select("class_id")
+      .eq("student_id", profile.id)
+      .eq("status", "pending"),
   ]);
 
   const teacherIds = Array.from(new Set((classes ?? []).map((item) => item.teacher_id)));
@@ -36,6 +41,7 @@ export default async function ClassesPage() {
   const joinedClassRoleById = Object.fromEntries(
     (myMemberships ?? []).map((entry) => [entry.class_id, entry.member_role || null]),
   );
+  const pendingJoinRequestClassIds = [...new Set((myJoinRequests ?? []).map((entry) => entry.class_id))];
 
   return (
     <AppShell
@@ -60,6 +66,7 @@ export default async function ClassesPage() {
           teacherNameById={teacherNameById}
           joinedClassIds={[...joinedClassIds]}
           joinedClassRoleById={joinedClassRoleById}
+          pendingJoinRequestClassIds={pendingJoinRequestClassIds}
         />
       </div>
     </AppShell>

@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CiCirclePlus } from "react-icons/ci";
 import { useClassSearchQuery } from "@/components/AppShell";
 import type { UserRole } from "@/lib/supabase/types";
 
@@ -60,6 +61,75 @@ function getClassAcademicLabel(item: ClassItem) {
   return item.year_level || "N/A";
 }
 
+function getClassIconConfig(name: string, yearLevel: string | null) {
+  const text = `${name} ${yearLevel || ""}`.toLowerCase();
+  const matches = (terms: string[]) => terms.some((term) => text.includes(term));
+
+  if (matches(["math", "algebra", "geometry", "calculus", "statistics"])) {
+    return {
+      bg: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+          <path d="M5 12h14M12 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
+        </svg>
+      ),
+    };
+  }
+
+  if (matches(["biology", "chemistry", "physics", "science", "lab"])) {
+    return {
+      bg: "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+          <path d="M10 3h4M11 3v6l-4.5 7A3 3 0 0 0 9 20h6a3 3 0 0 0 2.5-4L13 9V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ),
+    };
+  }
+
+  if (matches(["history", "social", "government", "world"])) {
+    return {
+      bg: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+          <path d="M4 19V6a2 2 0 0 1 2-2h14v15H6a2 2 0 0 0-2 2Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M8 6v13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+    };
+  }
+
+  if (matches(["english", "literature", "reading", "writing", "language"])) {
+    return {
+      bg: "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+          <path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M18 7h1a1 1 0 0 1 1 1v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+    };
+  }
+
+  if (matches(["computer", "programming", "it", "tech", "coding"])) {
+    return {
+      bg: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+          <path d="M4 5h16v11H4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M8 20h8M10 16v4M14 16v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+    };
+  }
+
+  return {
+    bg: "bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
+    icon: <span className="text-sm font-black">C</span>,
+  };
+}
+
 export function ClassesClient({
   profileId,
   role,
@@ -68,6 +138,7 @@ export function ClassesClient({
   teacherNameById,
   joinedClassIds,
   joinedClassRoleById,
+  pendingJoinRequestClassIds,
 }: {
   profileId: string;
   role: UserRole;
@@ -76,6 +147,7 @@ export function ClassesClient({
   teacherNameById: Record<string, string>;
   joinedClassIds: string[];
   joinedClassRoleById: Record<string, string | null>;
+  pendingJoinRequestClassIds: string[];
 }) {
   const router = useRouter();
   const searchQuery = useClassSearchQuery();
@@ -101,6 +173,7 @@ export function ClassesClient({
 
   const [joinPassword, setJoinPassword] = useState<Record<string, string>>({});
   const [joinRoleModalClassId, setJoinRoleModalClassId] = useState<string | null>(null);
+  const [requestedClassIds, setRequestedClassIds] = useState<string[]>(pendingJoinRequestClassIds);
   const search = searchQuery.trim().toLowerCase();
 
   const visibleClasses = useMemo(() => {
@@ -292,6 +365,7 @@ export function ClassesClient({
     }
 
     setMessage(payload.message || "Join request submitted.");
+    setRequestedClassIds((current) => Array.from(new Set([...current, classId])));
     setJoinRoleModalClassId(null);
   }
 
@@ -300,9 +374,15 @@ export function ClassesClient({
       {message ? <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-800">{message}</p> : null}
 
       {canCreate ? (
-        <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-zinc-900">Create class</h2>
-          <form onSubmit={createClass} className="mt-3 grid gap-3 sm:grid-cols-2">
+        <section className="rounded-3xl border-2 border-dashed border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]">
+          <div className="mb-4 flex items-center gap-3">
+            <CiCirclePlus className="h-12 w-12 text-[var(--muted)]" />
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--foreground)]">Create class</h2>
+              <p className="text-sm text-[var(--muted)]">Set up a new class for your students.</p>
+            </div>
+          </div>
+          <form onSubmit={createClass} className="grid gap-3 sm:grid-cols-2">
             <input
               required
               value={name}
@@ -400,7 +480,7 @@ export function ClassesClient({
             />
             <button
               type="submit"
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 sm:col-span-2"
             >
               Save class
             </button>
@@ -424,14 +504,21 @@ export function ClassesClient({
             const isTeacherOwner = item.teacher_id === profileId;
             const isJoined = joinedClassIds.includes(item.id);
             const joinedRole = joinedClassRoleById[item.id];
+            const isJoinRequested = requestedClassIds.includes(item.id);
             const canOpenClass = isJoined || isTeacherOwner || role === "admin";
+            const classIcon = getClassIconConfig(item.name, item.year_level);
 
             return (
-              <article key={item.id} className="rounded-xl border border-zinc-200 p-4">
-                <h3 className="text-base font-semibold text-zinc-900">{item.name}</h3>
-                <p className="mt-1 text-sm text-zinc-600">{item.description || "No description"}</p>
-                <p className="mt-2 text-xs text-zinc-500">Year: {getClassAcademicLabel(item)}</p>
-                <p className="text-xs text-zinc-500">
+              <article key={item.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:bg-[var(--surface-elevated)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${classIcon.bg}`}>
+                    {classIcon.icon}
+                  </div>
+                </div>
+                <h3 className="mt-4 text-base font-semibold text-[var(--foreground)]">{item.name}</h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">{item.description || "No description"}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">{getClassAcademicLabel(item)}</p>
+                <p className="text-xs text-[var(--muted)]">
                   Created by: {teacherNameById[item.teacher_id] || "Unknown Teacher"}
                 </p>
 
@@ -439,7 +526,7 @@ export function ClassesClient({
                   {canOpenClass ? (
                     <Link
                       href={`/classes/${item.id}`}
-                      className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-elevated)]"
                     >
                       Open class
                     </Link>
@@ -449,13 +536,13 @@ export function ClassesClient({
                     <button
                       type="button"
                       onClick={() => openEditClassModal(item)}
-                      className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
+                      className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300"
                     >
                       Edit class
                     </button>
                   ) : null}
 
-                  {(role === "student" || role === "teacher" || role === "admin") && !isJoined && !isTeacherOwner ? (
+                  {(role === "student" || role === "teacher" || role === "admin") && !isJoined && !isTeacherOwner && !isJoinRequested ? (
                     <>
                       <input
                         value={joinPassword[item.id] || ""}
@@ -463,7 +550,7 @@ export function ClassesClient({
                           setJoinPassword((prev) => ({ ...prev, [item.id]: e.target.value }))
                         }
                         placeholder="Password (if required)"
-                        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                       />
                       <button
                         type="button"
@@ -481,12 +568,18 @@ export function ClassesClient({
                     </>
                   ) : null}
 
+                  {(role === "student" || role === "teacher" || role === "admin") && isJoinRequested && !isJoined && !isTeacherOwner ? (
+                    <span className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                      Request sent
+                    </span>
+                  ) : null}
+
                   {isTeacherOwner ? (
-                    <span className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700">
+                    <span className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
                       You are the teacher
                     </span>
                   ) : joinedRole === "teacher" ? (
-                    <span className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                    <span className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                       Joined as teacher
                     </span>
                   ) : null}

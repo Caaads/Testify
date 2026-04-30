@@ -70,6 +70,7 @@ export default async function QuizPage({
     >
       <div className="app-enter mx-auto w-full max-w-4xl">
         <QuizClient
+          classId={quiz.class_id}
           quizId={quiz.id}
           title={quiz.title}
           duration={quiz.duration || 15}

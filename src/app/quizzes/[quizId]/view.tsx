@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -85,6 +86,7 @@ function getOptionFeedback(question: Question, value: string) {
 }
 
 export function QuizClient({
+  classId,
   quizId,
   title,
   duration,
@@ -97,6 +99,7 @@ export function QuizClient({
   existingSubmission,
   questions,
 }: {
+  classId: string;
   quizId: string;
   title: string;
   duration: number;
@@ -126,6 +129,8 @@ export function QuizClient({
   const [attemptStarted, setAttemptStarted] = useState(existingSubmission?.status === "in_progress");
   const [password, setPassword] = useState("");
   const [requiresPassword, setRequiresPassword] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [isTabVisible, setIsTabVisible] = useState(true);
 
   const randomizedQuestions = useMemo(() => {
     const copy = [...questions];
@@ -215,12 +220,12 @@ export function QuizClient({
           window.clearInterval(timer);
           return 0;
         }
-        return prev - 1;
+        return isTabVisible ? prev - 1 : prev;
       });
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isStudent, completedSubmission, attemptStarted]);
+  }, [isStudent, completedSubmission, attemptStarted, isTabVisible]);
 
   useEffect(() => {
     if (!isStudent || completedSubmission || !attemptStarted) {
@@ -237,7 +242,9 @@ export function QuizClient({
     }
 
     function trackTabSwitch() {
-      if (document.hidden) {
+      const isHidden = document.hidden;
+      setIsTabVisible(!isHidden);
+      if (isHidden) {
         setTabSwitchCount((count) => count + 1);
       }
     }
@@ -262,12 +269,64 @@ export function QuizClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secondsLeft]);
 
+  // Auto-save on keystroke with debouncing
   useEffect(() => {
     if (!isStudent || completedSubmission || !attemptStarted) {
       return;
     }
 
-    const autosave = window.setInterval(() => {
+    let debounceTimer: NodeJS.Timeout | undefined;
+
+    async function performAutosave() {
+      setSaveStatus("saving");
+      const payload = randomizedQuestions.map((question) => ({
+        questionId: question.id,
+        answer: answers[question.id] || "",
+      }));
+
+      try {
+        const response = await fetch("/api/quizzes/attempt", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quizId, answers: payload, remainingSeconds: secondsLeft }),
+        });
+
+        if (response.ok) {
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        } else {
+          setSaveStatus("error");
+          setTimeout(() => setSaveStatus("idle"), 3000);
+        }
+      } catch {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      }
+    }
+
+    // Debounce keystroke-based saves (500ms)
+    if (debounceTimer !== undefined) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => {
+      void performAutosave();
+    }, 500);
+
+    return () => {
+      if (debounceTimer !== undefined) {
+        clearTimeout(debounceTimer);
+      }
+    };
+  }, [isStudent, completedSubmission, attemptStarted, answers, randomizedQuestions, quizId, secondsLeft]);
+
+  // Periodic auto-save as fallback (every 10 seconds)
+  useEffect(() => {
+    if (!isStudent || completedSubmission || !attemptStarted) {
+      return;
+    }
+
+    const intervalTimer = setInterval(() => {
+      setSaveStatus("saving");
       const payload = randomizedQuestions.map((question) => ({
         questionId: question.id,
         answer: answers[question.id] || "",
@@ -277,10 +336,16 @@ export function QuizClient({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ quizId, answers: payload, remainingSeconds: secondsLeft }),
+      }).then(() => {
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      }).catch(() => {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 3000);
       });
     }, 10000);
 
-    return () => window.clearInterval(autosave);
+    return () => clearInterval(intervalTimer);
   }, [isStudent, completedSubmission, attemptStarted, randomizedQuestions, answers, secondsLeft, quizId]);
 
   async function submitQuiz(event?: FormEvent) {
@@ -352,14 +417,82 @@ export function QuizClient({
 
   if (!isStudent) {
     return (
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <h1 className="text-xl font-bold text-zinc-900">{title}</h1>
-        <p className="mt-2 text-sm text-zinc-600">Teacher preview mode.</p>
-        <p className="mt-2 text-sm text-zinc-600">Questions: {questions.length}</p>
-        <p className="text-sm text-zinc-600">Total score: {totalScore}</p>
-        <p className="mt-1 text-sm text-zinc-600">
-          Opens: {opensAtDate ? opensAtDate.toLocaleString() : "Anytime"} | Closes: {closesAtDate ? closesAtDate.toLocaleString() : "No close"}
-        </p>
+      <section className="space-y-4">
+        <header className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-bold text-zinc-900">{title}</h1>
+              <p className="mt-2 text-sm text-zinc-600">Teacher preview mode.</p>
+              <p className="mt-1 text-sm text-zinc-600">Questions: {questions.length}</p>
+              <p className="text-sm text-zinc-600">Total score: {totalScore}</p>
+              <p className="mt-1 text-sm text-zinc-600">
+                Opens: {opensAtDate ? opensAtDate.toLocaleString() : "Anytime"} | Closes: {closesAtDate ? closesAtDate.toLocaleString() : "No close"}
+              </p>
+            </div>
+
+            <Link
+              href={`/classes/${classId}/quizzes/${quizId}/edit`}
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+            >
+              Edit test
+            </Link>
+          </div>
+        </header>
+
+        <div className="space-y-3">
+          {questions.map((question, index) => (
+            <article key={question.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-zinc-900">
+                    {index + 1}. {question.content}
+                  </p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-zinc-500">{question.type}</p>
+                </div>
+                {question.required ? (
+                  <span className="rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-700">
+                    Required
+                  </span>
+                ) : null}
+              </div>
+
+              {question.imageUrl ? (
+                <img
+                  src={question.imageUrl}
+                  alt={`Question ${index + 1}`}
+                  className="mt-2 max-h-64 w-full rounded-lg border border-zinc-200 object-contain"
+                />
+              ) : null}
+
+              <p className="mt-2 text-sm text-zinc-700">Points: {question.points}</p>
+
+              {(question.type === "mcq" || question.type === "dropdown" || question.type === "checkbox") && question.options.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {question.options.map((option, optionIndex) => (
+                    <div key={`${question.id}-${optionIndex}`} className="rounded-lg border border-zinc-200 p-2 text-sm text-zinc-700">
+                      {option}
+                      {question.optionFeedback && question.optionFeedback[option] ? (
+                        <p className="mt-1 text-xs text-sky-700">Feedback: {question.optionFeedback[option]}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {(question.type === "identification" || question.type === "essay") ? (
+                <p className="mt-3 text-sm text-zinc-700">
+                  Answer key: {formatExpectedAnswer(question.type, question.correctAnswer)}
+                </p>
+              ) : null}
+
+              {(question.type === "mcq" || question.type === "dropdown" || question.type === "checkbox") ? (
+                <p className="mt-3 text-sm text-zinc-700">
+                  Correct answer: {formatExpectedAnswer(question.type, question.correctAnswer)}
+                </p>
+              ) : null}
+            </article>
+          ))}
+        </div>
       </section>
     );
   }
@@ -474,11 +607,21 @@ export function QuizClient({
     <section className="space-y-4">
       <header className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <h1 className="text-xl font-bold text-zinc-900">{title}</h1>
-        <div className="mt-2 flex flex-wrap gap-3 text-sm text-zinc-600">
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
           <span>Duration: {duration} minutes</span>
           <span>Total score: {totalScore}</span>
           <span className="font-semibold text-rose-700">Time left: {minutes}:{seconds}</span>
           <span>Tab switches: {tabSwitchCount}</span>
+          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+            saveStatus === "saving" ? "bg-blue-100 text-blue-700" :
+            saveStatus === "saved" ? "bg-emerald-100 text-emerald-700" :
+            saveStatus === "error" ? "bg-rose-100 text-rose-700" :
+            "text-transparent"
+          }`}>
+            {saveStatus === "saving" ? "⏳ Saving..." :
+             saveStatus === "saved" ? "✓ Saved" :
+             saveStatus === "error" ? "✕ Error" : "—"}
+          </span>
         </div>
         <p className="mt-2 text-sm text-zinc-600">
           Opens: {opensAtDate ? opensAtDate.toLocaleString() : "Anytime"} | Closes: {closesAtDate ? closesAtDate.toLocaleString() : "No close"}

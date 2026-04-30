@@ -149,19 +149,19 @@ export default async function ClassPage({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Link
             href={`/classes/${classId}/announcements`}
-            className="rounded-xl border border-(--border) bg-(--surface) px-3 py-2 text-sm font-semibold text-foreground hover:bg-(--surface-elevated)"
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-elevated)]"
           >
             Announcements
           </Link>
           <Link
             href={`/classes/${classId}/members`}
-            className="rounded-xl border border-(--border) bg-(--surface) px-3 py-2 text-sm font-semibold text-foreground hover:bg-(--surface-elevated)"
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-elevated)]"
           >
             Members
           </Link>
           <Link
             href={`/classes/${classId}/scoreboard`}
-            className="rounded-xl border border-(--border) bg-(--surface) px-3 py-2 text-sm font-semibold text-foreground hover:bg-(--surface-elevated)"
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-elevated)]"
           >
             Scoreboard
           </Link>
@@ -172,6 +172,7 @@ export default async function ClassPage({
           role={profile.role}
           canManage={canManage}
           isOwner={isTeacherOwner}
+          className={classData.name}
           classDescription={classData.description || ""}
           classCreatorName={classCreatorName}
           canLeave={canLeave}

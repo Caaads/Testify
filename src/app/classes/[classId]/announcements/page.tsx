@@ -37,6 +37,13 @@ export default async function AnnouncementsPage({
     classData.teacher_id === profile.id ||
     myMembership?.member_role === "teacher";
   const isMember = Boolean(myMembership) || canPost;
+
+  const { data: classTeacherProfile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", classData.teacher_id)
+    .maybeSingle();
+
   if (!isMember && profile.role !== "admin") {
     notFound();
   }
@@ -55,7 +62,12 @@ export default async function AnnouncementsPage({
           </Link>
         </div>
 
-        <ClassAnnouncementsClient classId={classId} canPost={canPost} />
+        <ClassAnnouncementsClient
+          classId={classId}
+          className={classData.name}
+          classTeacherName={classTeacherProfile?.full_name || "Unknown Teacher"}
+          canPost={canPost}
+        />
       </div>
     </AppShell>
   );
