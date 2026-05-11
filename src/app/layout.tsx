@@ -15,6 +15,11 @@ const spaceGrotesk = Space_Grotesk({
 export const metadata: Metadata = {
   title: "Testify",
   description: "Classroom test and examination platform for teachers and students.",
+  icons: {
+    icon: "/brand-favicon.svg",
+    shortcut: "/brand-favicon.svg",
+    apple: "/brand-favicon.svg",
+  },
 };
 
 export default function RootLayout({

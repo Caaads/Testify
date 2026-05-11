@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { RoleBadge } from "@/components/RoleBadge";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -269,10 +270,21 @@ export function AppShell({
                 </svg>
               </button>
               <Link href="/dashboard" className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--surface-elevated)]">
-                <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-sky-600 to-indigo-700 text-white shadow-sm">
-                  <span className="text-xs font-black">T</span>
-                </div>
-                <span className="hidden text-lg font-semibold sm:inline">Testify</span>
+                <Image
+                  src="/brand-logo.svg"
+                  alt="Testify"
+                  width={150}
+                  height={40}
+                  className="hidden h-8 w-auto sm:block"
+                  priority
+                />
+                <Image
+                  src="/brand-favicon.svg"
+                  alt="Testify"
+                  width={32}
+                  height={32}
+                  className="h-8 w-8 sm:hidden"
+                />
               </Link>
             </div>
             <div className="flex-1 min-w-[220px]">
