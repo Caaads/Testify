@@ -14,7 +14,7 @@ export default async function EditQuizPage({
   const profile = await requireProfile();
   const supabase = await createServerSupabaseClient();
 
-  const [{ data: classData }, { data: terms }, { data: quiz }, { data: questions }] = await Promise.all([
+  const [{ data: classData }, { data: terms }, { data: quiz }, { data: questions }, { data: myMembership }] = await Promise.all([
     supabase
       .from("classes")
       .select("id, name, teacher_id")
@@ -35,13 +35,20 @@ export default async function EditQuizPage({
       .select("id, type, content, options, correct_answer, image_url, required, option_feedback, points")
       .eq("quiz_id", quizId)
       .order("id", { ascending: true }),
+    supabase
+      .from("class_students")
+      .select("id, member_role")
+      .eq("class_id", classId)
+      .eq("student_id", profile.id)
+      .maybeSingle(),
   ]);
 
   if (!classData || !quiz || quiz.class_id !== classId) {
     notFound();
   }
 
-  const canManage = profile.role === "admin" || classData.teacher_id === profile.id;
+  const isTeacherMember = myMembership?.member_role === "teacher";
+  const canManage = profile.role === "admin" || classData.teacher_id === profile.id || isTeacherMember;
   if (!canManage) {
     notFound();
   }

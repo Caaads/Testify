@@ -25,15 +25,86 @@ type ReviewSubmission = {
 type AnswerEntry = {
   questionId: string;
   answer: string;
+  awardedPoints?: number;
 };
 
-export function QuizReviewClient({ quizId }: { quizId: string }) {
+function parseCheckboxAnswer(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [] as string[];
+  }
+}
+
+function parseExpectedAnswers(value: string) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return [] as string[];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item).trim()).filter(Boolean);
+    }
+  } catch {
+    // treat as single answer
+  }
+
+  return [trimmed];
+}
+
+function getAutoAwardedPoints(question: ReviewQuestion | undefined, rawAnswer: string) {
+  if (!question) return 0;
+  const points = Number(question.points || 1);
+  const expected = String(question.correct_answer || "");
+  const response = String(rawAnswer || "");
+
+  if (question.type === "essay") {
+    return 0;
+  }
+
+  if (question.type === "checkbox") {
+    const expectedValues = parseCheckboxAnswer(expected).map((value) => value.toLowerCase()).sort();
+    const responseValues = parseCheckboxAnswer(response).map((value) => value.toLowerCase()).sort();
+    if (
+      expectedValues.length > 0 &&
+      expectedValues.length === responseValues.length &&
+      expectedValues.every((value, index) => value === responseValues[index])
+    ) {
+      return points;
+    }
+    return 0;
+  }
+
+  const normalizedResponse = response.trim().toLowerCase();
+  const candidates = parseExpectedAnswers(expected).map((value) => value.toLowerCase());
+  if (normalizedResponse && candidates.includes(normalizedResponse)) {
+    return points;
+  }
+
+  return 0;
+}
+
+export function QuizReviewClient({
+  quizId,
+  classId,
+  className,
+}: {
+  quizId: string;
+  classId: string;
+  className: string;
+}) {
   const [quizTitle, setQuizTitle] = useState("Test");
   const [questions, setQuestions] = useState<ReviewQuestion[]>([]);
   const [submissions, setSubmissions] = useState<ReviewSubmission[]>([]);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [returningSubmissionId, setReturningSubmissionId] = useState<string | null>(null);
+  const [manualScores, setManualScores] = useState<Record<string, number>>({});
 
   async function loadData() {
     const response = await fetch(`/api/quizzes/review?quizId=${quizId}`);
@@ -88,11 +159,16 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
     return submission.student_name || submission.profiles?.[0]?.full_name || "Unnamed Student";
   }
 
-  async function saveScore(submissionId: string, score: number, status: string) {
+  async function saveScore(
+    submissionId: string,
+    score: number,
+    status: string,
+    questionScores?: Record<string, number>,
+  ) {
     const response = await fetch("/api/quizzes/review", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ submissionId, score, status }),
+      body: JSON.stringify({ submissionId, score, status, questionScores }),
     });
 
     const data = (await response.json()) as { error?: string; message?: string };
@@ -134,12 +210,12 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
 
     answers.forEach((entry) => {
       const question = questionMap.get(entry.questionId);
-      const expected = (question?.correct_answer || "").trim();
-      const actual = (entry.answer || "").trim();
-      const isCorrect =
-        expected.length > 0 &&
-        actual.length > 0 &&
-        actual.toLowerCase() === expected.toLowerCase();
+      const awarded = Number(
+        typeof entry.awardedPoints === "number"
+          ? entry.awardedPoints
+          : getAutoAwardedPoints(question, entry.answer || ""),
+      );
+      const isCorrect = awarded > 0;
 
       if (isCorrect) {
         passed++;
@@ -151,12 +227,50 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
     return { passed, failed, notAttempted, total: questions.length };
   }, [selectedSubmission, questions, questionMap]);
 
+  useEffect(() => {
+    if (!selectedSubmission) {
+      setManualScores({});
+      return;
+    }
+
+    const answers = Array.isArray(selectedSubmission.answers)
+      ? (selectedSubmission.answers as AnswerEntry[])
+      : [];
+
+    const nextScores: Record<string, number> = {};
+    for (const entry of answers) {
+      const question = questionMap.get(entry.questionId);
+      const maxPoints = Math.max(0, Number(question?.points ?? 0));
+      const awarded =
+        typeof entry.awardedPoints === "number"
+          ? entry.awardedPoints
+          : getAutoAwardedPoints(question, entry.answer || "");
+      nextScores[entry.questionId] = Math.max(0, Math.min(maxPoints, Number(awarded) || 0));
+    }
+
+    setManualScores(nextScores);
+  }, [selectedSubmission, questionMap]);
+
+  const manualTotal = useMemo(() => {
+    if (!selectedSubmission) return 0;
+    const answers = Array.isArray(selectedSubmission.answers)
+      ? (selectedSubmission.answers as AnswerEntry[])
+      : [];
+
+    return answers.reduce((sum, entry) => {
+      return sum + Number(manualScores[entry.questionId] ?? 0);
+    }, 0);
+  }, [selectedSubmission, manualScores]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-zinc-900">{quizTitle}</h2>
-        <Link href={`/quizzes/${quizId}`} className="text-sm font-semibold text-sky-700 hover:underline">
-          Back to test
+        <div>
+          <h2 className="text-xl font-bold text-zinc-900">{quizTitle}</h2>
+          <p className="text-sm text-zinc-500">Class: {className}</p>
+        </div>
+        <Link href={`/classes/${classId}`} className="text-sm font-semibold text-sky-700 hover:underline">
+          Back to class
         </Link>
       </div>
 
@@ -207,16 +321,16 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
                       onSubmit={(event) => {
                         event.preventDefault();
                         const formData = new FormData(event.currentTarget);
-                        const score = Number(formData.get("score") ?? 0);
                         const status = String(formData.get("status") ?? "graded");
-                        void saveScore(selectedSubmission.id, score, status);
+                        void saveScore(selectedSubmission.id, manualTotal, status, manualScores);
                       }}
                     >
                       <input
                         name="score"
                         type="number"
                         min={0}
-                        defaultValue={selectedSubmission.score}
+                        value={manualTotal}
+                        readOnly
                         className="w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
                       />
                       <select
@@ -307,10 +421,9 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
                     const question = questionMap.get(entry.questionId);
                     const expected = (question?.correct_answer || "").trim();
                     const actual = (entry.answer || "").trim();
-                    const isCorrect =
-                      expected.length > 0 &&
-                      actual.length > 0 &&
-                      actual.toLowerCase() === expected.toLowerCase();
+                    const maxPoints = Math.max(0, Number(question?.points ?? 0));
+                    const awarded = Number(manualScores[entry.questionId] ?? 0);
+                    const isCorrect = awarded >= maxPoints && maxPoints > 0;
 
                     return (
                       <div
@@ -320,8 +433,28 @@ export function QuizReviewClient({ quizId }: { quizId: string }) {
                         <p className="font-semibold text-zinc-900">{question?.content || "Question removed"}</p>
                         <p className="mt-1 text-zinc-700">Student answer: {actual || "No answer"}</p>
                         <p className="text-zinc-700">Correct answer: {expected || "N/A"}</p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <label className="text-xs font-semibold text-zinc-600">Points</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={maxPoints}
+                            step={0.5}
+                            value={awarded}
+                            onChange={(e) => {
+                              const raw = Number(e.target.value);
+                              const safe = Number.isFinite(raw) ? raw : 0;
+                              setManualScores((prev) => ({
+                                ...prev,
+                                [entry.questionId]: Math.max(0, Math.min(maxPoints, safe)),
+                              }));
+                            }}
+                            className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-xs"
+                          />
+                          <span className="text-xs text-zinc-500">/ {maxPoints}</span>
+                        </div>
                         <p className={`text-xs font-semibold ${isCorrect ? "text-emerald-700" : "text-rose-700"}`}>
-                          {isCorrect ? "Correct" : "Needs review"}
+                          {isCorrect ? "Full points" : awarded > 0 ? "Partial credit" : "Needs review"}
                         </p>
                       </div>
                     );

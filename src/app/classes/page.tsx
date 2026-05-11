@@ -11,7 +11,7 @@ export default async function ClassesPage() {
   const [{ data: classes }, { data: myMemberships }, { data: myJoinRequests }] = await Promise.all([
     supabase
       .from("classes")
-      .select("id, name, description, year_level, strand, course, teacher_id, created_at")
+      .select("id, name, description, year_level, strand, course, teacher_id, created_at, class_password")
       .order("created_at", { ascending: false }),
     supabase
       .from("class_students")
@@ -35,6 +35,10 @@ export default async function ClassesPage() {
 
   const teacherNameById = Object.fromEntries(
     (teacherProfiles ?? []).map((teacher) => [teacher.id, teacher.full_name || "Unknown Teacher"]),
+  );
+
+  const classHasPasswordById = Object.fromEntries(
+    (classes ?? []).map((item) => [item.id, Boolean(item.class_password)]),
   );
 
   const joinedClassIds = new Set((myMemberships ?? []).map((entry) => entry.class_id));
@@ -67,6 +71,7 @@ export default async function ClassesPage() {
           joinedClassIds={[...joinedClassIds]}
           joinedClassRoleById={joinedClassRoleById}
           pendingJoinRequestClassIds={pendingJoinRequestClassIds}
+          classHasPasswordById={classHasPasswordById}
         />
       </div>
     </AppShell>

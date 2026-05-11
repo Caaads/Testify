@@ -32,6 +32,31 @@ type QuizDraft = {
   closes_at: string | null;
 };
 
+type GeneratedQuestion = {
+  type: BuilderQuestionType;
+  content: string;
+  imageUrl?: string;
+  options: string[];
+  optionFeedbacks?: string[];
+  correctAnswers: string[];
+  required?: boolean;
+  points?: number;
+};
+
+type QuestionBreakdown = {
+  mcq: number;
+  checkbox: number;
+  dropdown: number;
+  identification: number;
+  essay: number;
+};
+
+type GenerateMaterialsResponse = {
+  error?: string;
+  details?: string;
+  questions?: GeneratedQuestion[];
+};
+
 const QUESTION_TYPE_LABELS: Record<BuilderQuestionType, string> = {
   mcq: "Multiple choice",
   checkbox: "Checkboxes",
@@ -69,16 +94,31 @@ function reorderItems<T>(items: T[], from: number, to: number) {
   return next;
 }
 
+function GripDots() {
+  return (
+    <svg viewBox="0 0 16 24" className="h-6 w-4 text-zinc-400" fill="currentColor" aria-hidden="true">
+      <circle cx="4" cy="4" r="1.5" />
+      <circle cx="12" cy="4" r="1.5" />
+      <circle cx="4" cy="10" r="1.5" />
+      <circle cx="12" cy="10" r="1.5" />
+      <circle cx="4" cy="16" r="1.5" />
+      <circle cx="12" cy="16" r="1.5" />
+    </svg>
+  );
+}
+
 export function CreateQuizClient({
   classId,
   terms,
   mode = "create",
+  showAiBuilder = false,
   quiz,
   initialQuestions,
 }: {
   classId: string;
   terms: Term[];
   mode?: "create" | "edit";
+  showAiBuilder?: boolean;
   quiz?: QuizDraft | null;
   initialQuestions?: QuizQuestion[];
 }) {
@@ -103,6 +143,18 @@ export function CreateQuizClient({
   const [showQuizPassword, setShowQuizPassword] = useState(false);
   const [opensAt, setOpensAt] = useState(quiz?.opens_at ? quiz.opens_at.slice(0, 16) : "");
   const [closesAt, setClosesAt] = useState(quiz?.closes_at ? quiz.closes_at.slice(0, 16) : "");
+  const [referenceMaterialFile, setReferenceMaterialFile] = useState<File | null>(null);
+  const [referenceMaterialTotal, setReferenceMaterialTotal] = useState(6);
+  const [referenceMaterialBreakdown, setReferenceMaterialBreakdown] = useState<QuestionBreakdown>({
+    mcq: 3,
+    checkbox: 1,
+    dropdown: 0,
+    identification: 1,
+    essay: 1,
+  });
+  const [referenceMaterialMessage, setReferenceMaterialMessage] = useState<string | null>(null);
+  const [referenceMaterialGenerating, setReferenceMaterialGenerating] = useState(false);
+  const [previewGeneratedQuestions, setPreviewGeneratedQuestions] = useState<QuizQuestion[]>([]);
 
   const [questionBlocks, setQuestionBlocks] = useState<QuizQuestion[]>(
     initialQuestions && initialQuestions.length > 0
@@ -176,6 +228,111 @@ export function CreateQuizClient({
       ...question,
       optionFeedbacks: question.optionFeedbacks.map((feedback, idx) => (idx === optionIndex ? value : feedback)),
     }));
+  }
+
+  function isBlankQuestion(question: QuizQuestion) {
+    return (
+      !question.content.trim() &&
+      !question.imageUrl.trim() &&
+      question.options.every((option) => !option.trim()) &&
+      question.correctAnswers.length === 0
+    );
+  }
+
+  function updateBreakdown(type: keyof QuestionBreakdown, value: number) {
+    setReferenceMaterialBreakdown((prev) => ({
+      ...prev,
+      [type]: Math.max(0, value),
+    }));
+  }
+
+  function mapGeneratedQuestions(questions: GeneratedQuestion[]) {
+    return questions.map((question) => ({
+      content: question.content || "",
+      type: question.type,
+      imageUrl: question.imageUrl || "",
+      options: Array.isArray(question.options) ? question.options : [],
+      optionFeedbacks: Array.isArray(question.optionFeedbacks)
+        ? question.optionFeedbacks
+        : Array.isArray(question.options)
+          ? question.options.map(() => "")
+          : [],
+      correctAnswers: Array.isArray(question.correctAnswers) ? question.correctAnswers : [],
+      required: Boolean(question.required ?? true),
+      showOptionFeedback: false,
+      points: Math.max(1, Number(question.points || 1)),
+    }));
+  }
+
+  function insertGeneratedQuestions(questions: QuizQuestion[]) {
+    setQuestionBlocks((prev) => (prev.length === 1 && isBlankQuestion(prev[0]) ? questions : [...prev, ...questions]));
+  }
+
+  async function generateQuestionsFromReferenceMaterial() {
+    setReferenceMaterialMessage(null);
+
+    if (!referenceMaterialFile) {
+      setReferenceMaterialMessage("Choose a reference file first.");
+      return;
+    }
+
+    const totalRequested = Math.max(1, Number(referenceMaterialTotal || 0));
+    const breakdownTotal = Object.values(referenceMaterialBreakdown).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+
+    if (breakdownTotal !== totalRequested) {
+      setReferenceMaterialMessage("The question type counts must add up to the total number of items.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("classId", classId);
+    formData.append("file", referenceMaterialFile);
+    formData.append("totalQuestions", String(totalRequested));
+    formData.append("mcqCount", String(referenceMaterialBreakdown.mcq));
+    formData.append("checkboxCount", String(referenceMaterialBreakdown.checkbox));
+    formData.append("dropdownCount", String(referenceMaterialBreakdown.dropdown));
+    formData.append("identificationCount", String(referenceMaterialBreakdown.identification));
+    formData.append("essayCount", String(referenceMaterialBreakdown.essay));
+
+    try {
+      setReferenceMaterialGenerating(true);
+      const response = await fetch("/api/quizzes/generate-from-materials", {
+        method: "POST",
+        body: formData,
+      });
+
+      const rawText = await response.text();
+      let payload: GenerateMaterialsResponse = {};
+
+      if (rawText.trim()) {
+        try {
+          payload = JSON.parse(rawText) as GenerateMaterialsResponse;
+        } catch {
+          payload = {
+            error: "AI generation returned a non-JSON response.",
+            details: rawText.slice(0, 400),
+          };
+        }
+      }
+
+      if (!response.ok || !payload.questions || payload.questions.length === 0) {
+        const details = payload.details ? ` Details: ${payload.details}` : "";
+        setReferenceMaterialMessage((payload.error || "Unable to generate questions from the reference file.") + details);
+        return;
+      }
+
+      const generatedQuestions = mapGeneratedQuestions(payload.questions);
+      setPreviewGeneratedQuestions(generatedQuestions);
+      setReferenceMaterialMessage(`Preview ready: ${generatedQuestions.length} generated questions. Review then insert.`);
+    } catch (error) {
+      setReferenceMaterialMessage(
+        error instanceof Error
+          ? `Generation failed. Details: ${error.message}`
+          : "Generation failed due to an unknown error.",
+      );
+    } finally {
+      setReferenceMaterialGenerating(false);
+    }
   }
 
   async function uploadImage(index: number, file: File) {
@@ -318,12 +475,37 @@ export function CreateQuizClient({
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-zinc-900">{mode === "edit" ? "Edit test" : "Test builder"}</h2>
-        <Link href={`/classes/${classId}`} className="text-sm font-semibold text-sky-700 hover:underline">
-          Back to class
-        </Link>
+    <section className="rounded-[1.75rem] border border-sky-100 p-3 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+<div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[1.4rem] border border-blue-900/40 bg-blue-950/80 px-4 py-3 shadow-sm backdrop-blur">
+        <div className="flex items-center gap-3">
+          <Link href={`/classes/${classId}`} className="rounded-full p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900" aria-label="Back to class">
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+              <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </Link>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-100">{mode === "edit" ? "Edit Test" : "Create New Test"}</h2>
+            <p className="text-sm text-slate-500">Build your test with a clean, guided layout.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href={`/classes/${classId}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-slate-50">
+            Back to Class
+          </Link>
+          <Link
+            href={showAiBuilder ? `/classes/${classId}/quizzes/create` : `/classes/${classId}/quizzes/ai-builder`}
+            className="rounded-full border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-800 shadow-sm transition hover:bg-cyan-100"
+          >
+            {showAiBuilder ? "Manual Builder" : "AI Test Builder"}
+          </Link>
+          <button
+            type="submit"
+            form="quiz-builder-form"
+            className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800"
+          >
+            Publish Test
+          </button>
+        </div>
       </div>
 
       {message ? <p className="mb-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-800">{message}</p> : null}
@@ -333,407 +515,689 @@ export function CreateQuizClient({
           Create a term first before {mode === "edit" ? "editing" : "creating"} a test.
         </p>
       ) : (
-        <form onSubmit={createQuiz} className="space-y-3 rounded-xl border border-zinc-200 p-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              required
-              value={quizTitle}
-              onChange={(e) => setQuizTitle(e.target.value)}
-              placeholder="Test title"
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            />
-            <select
-              required
-              value={quizTermId}
-              onChange={(e) => setQuizTermId(e.target.value)}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            >
-              <option value="">Select term</option>
-              {terms.map((term) => (
-                <option key={term.id} value={term.id}>
-                  {term.name}
-                </option>
-              ))}
-            </select>
-            <div className="sm:col-span-2 rounded-lg border border-zinc-300 p-3">
-              <label className="mb-3 block text-sm font-medium text-zinc-700">Test Duration (HH:MM:SS)</label>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-zinc-600 text-center">Hours</label>
+        <form id="quiz-builder-form" onSubmit={createQuiz} className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <section className="rounded-[1.5rem] border border-white/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Test Identity</p>
+              <input
+                required
+                value={quizTitle}
+                onChange={(e) => setQuizTitle(e.target.value)}
+                placeholder="Enter test title e.g. Advanced Calculus Midterm 2"
+                className="mt-3 w-full border-0 border-b-2 border-sky-200 bg-transparent px-0 py-2 text-2xl font-semibold text-slate-900 outline-none placeholder:text-slate-300 focus:border-sky-500"
+              />
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-xs font-semibold text-slate-600">Academic Term</label>
+                  <select
+                    required
+                    value={quizTermId}
+                    onChange={(e) => setQuizTermId(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-sky-400 focus:bg-black"
+                  >
+                    <option value="">Select term</option>
+                    {terms.map((term) => (
+                      <option key={term.id} value={term.id}>
+                        {term.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            {showAiBuilder ? (
+            <section className="rounded-3xl border border-white/10 bg-[#08183d] p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">Reference Materials</p>
+                  <p className="mt-1 text-sm text-white/65">Upload a file, let AI draft questions, then fine-tune them below.</p>
+                </div>
+                <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">AI Drafting</span>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                <div className="rounded-2xl border border-white/10 bg-[#0b1f56] p-4 shadow-sm">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-white/60">
+                    Source File
+                  </label>
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-[1.25rem] border-2 border-dashed border-sky-400/20 bg-white/5 px-4 py-8 text-center transition hover:border-sky-300/40 hover:bg-white/10">
+                    <svg viewBox="0 0 24 24" className="h-7 w-7 text-cyan-200" fill="none" aria-hidden="true">
+                      <path d="M12 16V4m0 0 4 4m-4-4-4 4M4 16.5V20h16v-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span className="mt-3 text-sm font-semibold text-white">Choose a PDF, DOCX, TXT, or MD file</span>
+                    <span className="mt-1 text-xs text-white/55">
+                      AI will read this file and build an editable test draft.
+                    </span>
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setReferenceMaterialFile(file);
+                        setReferenceMaterialMessage(null);
+                        e.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-[#09183b] px-4 py-3 text-sm text-white/80">
+                    {referenceMaterialFile ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-white">{referenceMaterialFile.name}</p>
+                          <p className="text-xs text-white/55">{Math.ceil(referenceMaterialFile.size / 1024)} KB</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReferenceMaterialFile(null)}
+                          className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/75 transition hover:bg-white/5"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-white/55">No file selected yet.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-[#0b1f56] p-4 shadow-sm">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-white/60">
+                    Question Plan
+                  </label>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold text-white/60">How many items?</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={referenceMaterialTotal}
+                        onChange={(e) => setReferenceMaterialTotal(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-full rounded-2xl border border-white/10 bg-[#09183b] px-4 py-3 text-sm font-semibold text-white outline-none placeholder:text-white/35 focus:border-cyan-300"
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {(Object.entries(referenceMaterialBreakdown) as [keyof QuestionBreakdown, number][]).map(([type, value]) => (
+                        <div key={type}>
+                          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-white/60">
+                            {QUESTION_TYPE_LABELS[type]}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={value}
+                            onChange={(e) => updateBreakdown(type, Math.max(0, Number(e.target.value) || 0))}
+                            className="w-full rounded-2xl border border-white/10 bg-[#09183b] px-4 py-3 text-sm font-semibold text-white outline-none placeholder:text-white/35 focus:border-cyan-300"
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100">
+                      The type counts must match the total items before AI generation starts.
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void generateQuestionsFromReferenceMaterial()}
+                      disabled={referenceMaterialGenerating}
+                      className="w-full rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {referenceMaterialGenerating ? "Generating questions..." : "Generate questions with AI"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {referenceMaterialMessage ? (
+                <p className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-950/55 p-3 text-sm text-cyan-100">
+                  {referenceMaterialMessage}
+                </p>
+              ) : null}
+
+              {previewGeneratedQuestions.length > 0 ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1f56] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-sm font-semibold text-white">Preview Before Insert</h4>
+                    <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">
+                      {previewGeneratedQuestions.length} questions
+                    </span>
+                  </div>
+
+                  <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
+                    {previewGeneratedQuestions.map((question, index) => (
+                      <div key={`preview-${index}`} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">
+                          {index + 1}. {QUESTION_TYPE_LABELS[question.type]}
+                        </p>
+                        <p className="mt-1 text-sm text-white/90">{question.content}</p>
+                        {question.options.length > 0 ? (
+                          <p className="mt-1 text-xs text-white/65">
+                            Options: {question.options.join(" | ")}
+                          </p>
+                        ) : null}
+                        {question.correctAnswers.length > 0 ? (
+                          <p className="mt-1 text-xs text-emerald-200">
+                            Answers: {question.correctAnswers.join(", ")}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-white/55">Answers: Manual checking</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        insertGeneratedQuestions(previewGeneratedQuestions);
+                        setReferenceMaterialMessage(`Inserted ${previewGeneratedQuestions.length} generated questions into the builder.`);
+                        setPreviewGeneratedQuestions([]);
+                      }}
+                      className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                    >
+                      Insert into Builder
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewGeneratedQuestions([]);
+                        setReferenceMaterialMessage("Preview cleared. Generate again or adjust settings.");
+                      }}
+                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/85 transition hover:bg-white/10"
+                    >
+                      Discard Preview
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+            ) : null}
+
+            <section className="rounded-3xl border border-white/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Questions</p>
+                  <p className="mt-1 text-sm text-slate-500">Arrange and craft the test items below.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addQuestionBlock}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                >
+                  + Add New Question
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {normalizedQuestionBlocks.map((block, index) => {
+                  const isOptionQuestion = isOptionType(block.type);
+                  const normalizedOptions = normalizeStringArray(block.options);
+
+                  return (
+                    <div
+                      key={index}
+                      draggable
+                      onDragStart={() => setDragIndex(index)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => {
+                        if (dragIndex === null || dragIndex === index) {
+                          setDragIndex(null);
+                          return;
+                        }
+
+                        setQuestionBlocks((prev) => reorderItems(prev, dragIndex, index));
+                        setDragIndex(null);
+                      }}
+                      className="rounded-[1.4rem] border p-4 shadow-sm transition hover:border-sky-900 hover:bg-sky-700"
+                    >
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            className="cursor-grab rounded-full border border-transparent p-1 active:cursor-grabbing"
+                            aria-label={`Drag question ${index + 1} to reorder`}
+                          >
+                            <GripDots />
+                          </button>
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-700 text-xs font-bold text-white">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Multiple Choice</p>
+                            <p className="text-xs text-slate-500">Question {index + 1}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">Points</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={block.points}
+                            onChange={(e) =>
+                              updateQuestion(index, (item) => ({ ...item, points: Number(e.target.value) || 1 }))
+                            }
+                            className="w-20 rounded-full border border-slate-200 bg-white px-3 py-2 text-center text-sm font-semibold text-slate-800 shadow-sm outline-none focus:border-sky-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeQuestionBlock(index)}
+                            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 shadow-sm transition hover:border-rose-200 hover:text-rose-700"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="sm:col-span-2 rounded-2xl border border-slate-900 bg-slate-900 p-3 shadow-sm">
+                          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Question Content</label>
+                          <textarea
+                            value={block.content}
+                            onChange={(e) => updateQuestion(index, (item) => ({ ...item, content: e.target.value }))}
+                            placeholder="Type your question here..."
+                            className="min-h-28 w-full rounded-2xl border border-slate-100 bg-slate-900 px-4 py-3 text-sm text-slate-800 outline-none"
+                          />
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Question Type</label>
+                          <select
+                            value={block.type}
+                            onChange={(e) => {
+                              const nextType = e.target.value as BuilderQuestionType;
+                              updateQuestion(index, (item) => ({
+                                ...item,
+                                type: nextType,
+                                options: isOptionType(nextType) ? (item.options.length >= 2 ? item.options : ["", ""]) : [],
+                                optionFeedbacks: isOptionType(nextType) ? (item.optionFeedbacks.length >= 2 ? item.optionFeedbacks : ["", ""]) : [],
+                                correctAnswers:
+                                  nextType === "checkbox" || nextType === "mcq" || nextType === "dropdown" || nextType === "identification"
+                                    ? item.correctAnswers
+                                    : [],
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-400 "
+                          >
+                            {(Object.keys(QUESTION_TYPE_LABELS) as BuilderQuestionType[]).map((type) => (
+                              <option key={type} value={type}>
+                                {QUESTION_TYPE_LABELS[type]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Question Image</label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="inline-flex cursor-pointer items-center rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100">
+                              {uploadingQuestions[index] ? "Uploading..." : "Upload image"}
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                                className="hidden"
+                                disabled={Boolean(uploadingQuestions[index])}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    void uploadImage(index, file);
+                                  }
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                            {block.imageUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => updateQuestion(index, (item) => ({ ...item, imageUrl: "" }))}
+                                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                          {block.imageUrl ? (
+                            <img
+                              src={block.imageUrl}
+                              alt={`Question ${index + 1}`}
+                              className="mt-3 max-h-72 w-full rounded-2xl border border-slate-100 object-contain"
+                            />
+                          ) : null}
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Settings</label>
+                          <div className="space-y-2">
+                            <label className="flex items-center justify-between rounded-2xl bg-slate-300 px-4 py-3 text-sm text-slate-700">
+                              <span>Required</span>
+                              <input
+                                type="checkbox"
+                                checked={block.required}
+                                onChange={(e) => updateQuestion(index, (item) => ({ ...item, required: e.target.checked }))}
+                                className="h-4 w-4 rounded border border-slate-300 bg-transparent text-sky-600"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateQuestion(index, (item) => ({ ...item, showOptionFeedback: !item.showOptionFeedback }))}
+                              className="w-full rounded-2xl border border-sky-100 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-100"
+                            >
+                              {block.showOptionFeedback ? "Hide option feedback" : "Show option feedback"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {isOptionQuestion ? (
+                          <div className="space-y-3 sm:col-span-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Choices & Answer Key</p>
+                              <button
+                                type="button"
+                                onClick={() => addOption(index)}
+                                className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                              >
+                                + Add Option
+                              </button>
+                            </div>
+                            {block.options.map((option, optionIndex) => (
+                              <div key={`${index}-${optionIndex}`} className="grid gap-2 rounded-2xl bg-slate-900 p-3 shadow-sm">
+                                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                                  <input
+                                    value={option}
+                                    onChange={(e) => updateOption(index, optionIndex, e.target.value)}
+                                    placeholder={`Option ${optionIndex + 1}`}
+                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-400"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeOption(index, optionIndex)}
+                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-600 shadow-sm transition hover:text-rose-700"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                                {block.showOptionFeedback ? (
+                                  <input
+                                    value={block.optionFeedbacks[optionIndex] || ""}
+                                    onChange={(e) => updateOptionFeedback(index, optionIndex, e.target.value)}
+                                    placeholder="Option feedback (optional)"
+                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-400"
+                                  />
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {(block.type === "mcq" || block.type === "dropdown") ? (
+                          <div className="space-y-2 sm:col-span-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Answer Key</p>
+                            {normalizedOptions.length === 0 ? (
+                              <p className="text-xs text-slate-500">Add options first.</p>
+                            ) : (
+                              block.options.map((option, optionIndex) => {
+                                const normalizedOption = option.trim();
+                                if (!normalizedOption) {
+                                  return null;
+                                }
+
+                                const checked = block.correctAnswers.includes(normalizedOption);
+                                return (
+                                  <label key={`${index}-answer-${optionIndex}`} className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                    <input
+                                      type="checkbox"
+                                      value={normalizedOption}
+                                      checked={checked}
+                                      onChange={(e) =>
+                                        updateQuestion(index, (item) => ({
+                                          ...item,
+                                          correctAnswers: e.target.checked
+                                            ? [...item.correctAnswers, normalizedOption]
+                                            : item.correctAnswers.filter((value) => value !== normalizedOption),
+                                        }))
+                                      }
+                                      className="h-4 w-4 rounded border border-slate-300 bg-transparent text-sky-600"
+                                    />
+                                    <span>{normalizedOption}</span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        ) : null}
+
+                        {block.type === "checkbox" ? (
+                          <div className="space-y-2 sm:col-span-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Answer Key (select all correct options)</p>
+                            {normalizedOptions.length === 0 ? (
+                              <p className="text-xs text-slate-500">Add options first.</p>
+                            ) : (
+                              block.options.map((option, optionIndex) => {
+                                const normalizedOption = option.trim();
+                                if (!normalizedOption) {
+                                  return null;
+                                }
+
+                                const checked = block.correctAnswers.includes(normalizedOption);
+                                return (
+                                  <label key={`${index}-check-${optionIndex}`} className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        const shouldAdd = e.target.checked;
+                                        updateQuestion(index, (item) => ({
+                                          ...item,
+                                          correctAnswers: shouldAdd
+                                            ? [...item.correctAnswers, normalizedOption]
+                                            : item.correctAnswers.filter((value) => value !== normalizedOption),
+                                        }));
+                                      }}
+                                      className="h-4 w-4 rounded border border-slate-300 bg-transparent text-sky-600"
+                                    />
+                                    <span>{normalizedOption}</span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        ) : null}
+
+                        {block.type === "identification" ? (
+                          <div className="sm:col-span-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Answer Key</label>
+                            <textarea
+                              value={block.correctAnswers.join("\n")}
+                              onChange={(e) => {
+                                const entries = e.target.value
+                                  .split(/\r?\n|,/)
+                                  .map((value) => value.trim())
+                                  .filter(Boolean);
+                                updateQuestion(index, (item) => ({
+                                  ...item,
+                                  correctAnswers: entries,
+                                }));
+                              }}
+                              placeholder="Answer keys (one per line, or comma-separated)"
+                              className="min-h-24 w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-400 focus:bg-white"
+                            />
+                          </div>
+                        ) : null}
+
+                        {block.type === "essay" ? (
+                          <p className="sm:col-span-2 rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-700">
+                            Essay answers are manually checked. Points are still included in the total score.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={addQuestionBlock}
+                  className="w-full rounded-[1.4rem] border border-dashed border-sky-200 bg-sky-50/60 px-4 py-4 text-sm font-semibold text-sky-700 transition hover:bg-sky-50"
+                >
+                  Click to add another question
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+            <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-lg text-sky-700 dark:text-sky-300">⏱</span>
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Time Management</h3>
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Total Duration</p>
+              <div className="mt-3 grid grid-cols-3 items-center gap-2 rounded-2xl bg-[var(--surface-elevated)] p-3">
+                <div>
                   <input
                     type="number"
                     min={0}
                     max={23}
                     value={durationHours}
                     onChange={(e) => setDurationHours(Math.min(23, Math.max(0, Number(e.target.value) || 0)))}
-                    className="rounded-lg border border-zinc-300 px-2 py-2 text-sm text-center font-semibold"
+                    className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-center text-xl font-semibold text-[var(--foreground)] shadow-sm outline-none"
                   />
+                  <p className="mt-1 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Hrs</p>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-zinc-600 text-center">Minutes</label>
+                <div className="text-center text-2xl font-light text-[var(--muted)]">:</div>
+                <div>
                   <input
                     type="number"
                     min={0}
                     max={59}
                     value={durationMinutes}
                     onChange={(e) => setDurationMinutes(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
-                    className="rounded-lg border border-zinc-300 px-2 py-2 text-sm text-center font-semibold"
+                    className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-center text-xl font-semibold text-[var(--foreground)] shadow-sm outline-none"
+                  />
+                  <p className="mt-1 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Min</p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Test Opens</label>
+                  <input
+                    type="datetime-local"
+                    value={opensAt}
+                    onChange={(e) => setOpensAt(e.target.value)}
+                    className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-sm text-[var(--foreground)] outline-none focus:border-sky-400"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-zinc-600 text-center">Seconds</label>
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Test Closes</label>
                   <input
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={durationSeconds}
-                    onChange={(e) => setDurationSeconds(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
-                    className="rounded-lg border border-zinc-300 px-2 py-2 text-sm text-center font-semibold"
+                    type="datetime-local"
+                    value={closesAt}
+                    onChange={(e) => setClosesAt(e.target.value)}
+                    className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-sm text-[var(--foreground)] outline-none focus:border-sky-400"
                   />
                 </div>
               </div>
-            </div>
-            <label className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-              <input type="checkbox" checked={allowAutoScore} onChange={(e) => setAllowAutoScore(e.target.checked)} />
-              Enable auto score visibility
-            </label>
-            <label className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-              <input type="checkbox" checked={allowReview} onChange={(e) => setAllowReview(e.target.checked)} />
-              Allow student review after submit
-            </label>
-            <div className="flex items-center rounded-lg border border-zinc-300 pr-2 focus-within:border-sky-400">
-              <input
-                type={showQuizPassword ? "text" : "password"}
-                value={quizPassword}
-                onChange={(e) => setQuizPassword(e.target.value)}
-                placeholder="Optional test password"
-                className="w-full rounded-lg border-0 px-3 py-2 text-sm focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => setShowQuizPassword((prev) => !prev)}
-                className="rounded-md p-1 text-zinc-600 hover:bg-zinc-100"
-                aria-label={showQuizPassword ? "Hide password" : "Show password"}
-              >
-                {showQuizPassword ? (
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                    <path d="M3 3l18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M10.5 10.5a3 3 0 0 0 4.24 4.24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5.5 0 9.5 4 10.5 8-0.38 1.49-1.16 2.91-2.22 4.14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M6.23 6.23C4.56 7.47 3.33 9.13 2.5 12c1 4 5 8 9.5 8 1.85 0 3.53-0.45 5-1.23" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                    <path d="M2.5 12c1-4 5-8 9.5-8s8.5 4 9.5 8c-1 4-5 8-9.5 8s-8.5-4-9.5-8z" stroke="currentColor" strokeWidth="2" />
-                    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-                  </svg>
-                )}
-              </button>
-            </div>
-            <input
-              type="datetime-local"
-              value={opensAt}
-              onChange={(e) => setOpensAt(e.target.value)}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            />
-            <input
-              type="datetime-local"
-              value={closesAt}
-              onChange={(e) => setClosesAt(e.target.value)}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            />
-          </div>
+            </section>
 
-          {normalizedQuestionBlocks.map((block, index) => {
-            const isOptionQuestion = isOptionType(block.type);
-            const normalizedOptions = normalizeStringArray(block.options);
-
-            return (
-              <div
-                key={index}
-                draggable
-                onDragStart={() => setDragIndex(index)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  if (dragIndex === null || dragIndex === index) {
-                    setDragIndex(null);
-                    return;
-                  }
-
-                  setQuestionBlocks((prev) => reorderItems(prev, dragIndex, index));
-                  setDragIndex(null);
-                }}
-                className="rounded-lg border border-zinc-200 p-3"
-              >
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-zinc-700">Question {index + 1}</p>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-600">Drag to reorder</span>
-                    <button
-                      type="button"
-                      onClick={() => removeQuestionBlock(index)}
-                      className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                    >
-                      Remove question
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <textarea
-                    value={block.content}
-                    onChange={(e) => updateQuestion(index, (item) => ({ ...item, content: e.target.value }))}
-                    placeholder="Question content"
-                    className="min-h-20 rounded-lg border border-zinc-300 px-3 py-2 text-sm sm:col-span-2"
-                  />
-
-                  <select
-                    value={block.type}
-                    onChange={(e) => {
-                      const nextType = e.target.value as BuilderQuestionType;
-                      updateQuestion(index, (item) => ({
-                        ...item,
-                        type: nextType,
-                        options: isOptionType(nextType) ? (item.options.length >= 2 ? item.options : ["", ""]) : [],
-                        optionFeedbacks: isOptionType(nextType) ? (item.optionFeedbacks.length >= 2 ? item.optionFeedbacks : ["", ""]) : [],
-                        correctAnswers:
-                          nextType === "checkbox" || nextType === "mcq" || nextType === "dropdown" || nextType === "identification"
-                            ? item.correctAnswers
-                            : [],
-                      }));
-                    }}
-                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                  >
-                    {(Object.keys(QUESTION_TYPE_LABELS) as BuilderQuestionType[]).map((type) => (
-                      <option key={type} value={type}>
-                        {QUESTION_TYPE_LABELS[type]}
-                      </option>
-                    ))}
-                  </select>
-
-                  <input
-                    type="number"
-                    min={1}
-                    value={block.points}
-                    onChange={(e) =>
-                      updateQuestion(index, (item) => ({ ...item, points: Number(e.target.value) || 1 }))
-                    }
-                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                  />
-
-                  <label className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm sm:col-span-2">
-                    <input
-                      type="checkbox"
-                      checked={block.required}
-                      onChange={(e) => updateQuestion(index, (item) => ({ ...item, required: e.target.checked }))}
-                      className="h-4 w-4 rounded border border-zinc-400 bg-transparent"
-                    />
-                    Required question
-                  </label>
-
-                  <div className="sm:col-span-2 rounded-lg border border-zinc-300 p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 cursor-pointer">
-                        {uploadingQuestions[index] ? "Uploading..." : "Upload image"}
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
-                          className="hidden"
-                          disabled={Boolean(uploadingQuestions[index])}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              void uploadImage(index, file);
-                            }
-                            e.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                      {block.imageUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => updateQuestion(index, (item) => ({ ...item, imageUrl: "" }))}
-                          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                        >
-                          Remove image
-                        </button>
-                      ) : null}
-                    </div>
-                    {block.imageUrl ? (
-                      <img
-                        src={block.imageUrl}
-                        alt={`Question ${index + 1}`}
-                        className="mt-3 max-h-72 w-full rounded-lg border border-zinc-200 object-contain"
-                      />
-                    ) : null}
-                  </div>
-
-                  {isOptionQuestion ? (
-                    <div className="space-y-2 sm:col-span-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold text-zinc-500">Options</p>
-                        <button
-                          type="button"
-                          onClick={() => updateQuestion(index, (item) => ({ ...item, showOptionFeedback: !item.showOptionFeedback }))}
-                          className="rounded-lg border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                        >
-                          {block.showOptionFeedback ? "Hide feedback" : "Add option feedback"}
-                        </button>
-                      </div>
-                      {block.options.map((option, optionIndex) => (
-                        <div key={`${index}-${optionIndex}`} className="grid gap-2 rounded-lg border border-zinc-200 p-2">
-                          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                            <input
-                              value={option}
-                              onChange={(e) => updateOption(index, optionIndex, e.target.value)}
-                              placeholder={`Option ${optionIndex + 1}`}
-                              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeOption(index, optionIndex)}
-                              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                          {block.showOptionFeedback ? (
-                            <input
-                              value={block.optionFeedbacks[optionIndex] || ""}
-                              onChange={(e) => updateOptionFeedback(index, optionIndex, e.target.value)}
-                              placeholder="Feedback for this option (optional)"
-                              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                            />
-                          ) : null}
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => addOption(index)}
-                        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Add option
-                      </button>
-                    </div>
-                  ) : null}
-
-                  {(block.type === "mcq" || block.type === "dropdown") ? (
-                    <div className="space-y-2 sm:col-span-2">
-                      <p className="text-xs font-semibold text-zinc-500">Answer key</p>
-                      {normalizedOptions.length === 0 ? (
-                        <p className="text-xs text-zinc-500">Add options first.</p>
-                      ) : (
-                        block.options.map((option, optionIndex) => {
-                          const normalizedOption = option.trim();
-                          if (!normalizedOption) {
-                            return null;
-                          }
-
-                          const checked = block.correctAnswers.includes(normalizedOption);
-                          return (
-                          <label key={`${index}-answer-${optionIndex}`} className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              value={normalizedOption}
-                              checked={checked}
-                              onChange={(e) =>
-                                updateQuestion(index, (item) => ({
-                                  ...item,
-                                  correctAnswers: e.target.checked
-                                    ? [...item.correctAnswers, normalizedOption]
-                                    : item.correctAnswers.filter((value) => value !== normalizedOption),
-                                }))
-                              }
-                              className="h-4 w-4 rounded border border-zinc-400 bg-transparent"
-                            />
-                            <span>{normalizedOption}</span>
-                          </label>
-                          );
-                        })
-                      )}
-                    </div>
-                  ) : null}
-
-                  {block.type === "checkbox" ? (
-                    <div className="space-y-2 sm:col-span-2">
-                      <p className="text-xs font-semibold text-zinc-500">Answer key (select all correct options)</p>
-                      {normalizedOptions.length === 0 ? (
-                        <p className="text-xs text-zinc-500">Add options first.</p>
-                      ) : (
-                        block.options.map((option, optionIndex) => {
-                          const normalizedOption = option.trim();
-                          if (!normalizedOption) {
-                            return null;
-                          }
-
-                          const checked = block.correctAnswers.includes(normalizedOption);
-                          return (
-                            <label key={`${index}-check-${optionIndex}`} className="flex items-center gap-2 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const shouldAdd = e.target.checked;
-                                  updateQuestion(index, (item) => ({
-                                    ...item,
-                                    correctAnswers: shouldAdd
-                                      ? [...item.correctAnswers, normalizedOption]
-                                      : item.correctAnswers.filter((value) => value !== normalizedOption),
-                                  }));
-                                }}
-                                className="h-4 w-4 rounded border border-zinc-400 bg-transparent"
-                              />
-                              <span>{normalizedOption}</span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
-                  ) : null}
-
-                  {block.type === "identification" ? (
-                    <textarea
-                      value={block.correctAnswers.join("\n")}
-                      onChange={(e) => {
-                        const entries = e.target.value
-                          .split(/\r?\n|,/)
-                          .map((value) => value.trim())
-                          .filter(Boolean);
-                        updateQuestion(index, (item) => ({
-                          ...item,
-                          correctAnswers: entries,
-                        }));
-                      }}
-                      placeholder="Answer keys (one per line, or comma-separated)"
-                      className="min-h-20 rounded-lg border border-zinc-300 px-3 py-2 text-sm sm:col-span-2"
-                    />
-                  ) : null}
-
-                  {block.type === "essay" ? (
-                    <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700 sm:col-span-2">
-                      Essay answers are manually checked. Points are still included in total score.
-                    </p>
-                  ) : null}
-                </div>
+            <section className="rounded-[1.5rem] border border-white/80 bg-[#071637] p-5 text-white shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-lg text-cyan-300">🛡</span>
+                <h3 className="text-base font-semibold">Anti-Cheat</h3>
+                <span className="rounded-full bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-200">Enforced</span>
               </div>
-            );
-          })}
+              <div className="space-y-3 text-sm">
+                <label className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                  <div>
+                    <p className="font-semibold">Disable Copy-Paste</p>
+                    <p className="text-xs text-white/60">Restrict standard text copying</p>
+                  </div>
+                  <input type="checkbox" checked={true} readOnly className="h-5 w-5 rounded-full border-white/30 bg-cyan-500 text-cyan-500" />
+                </label>
+                <label className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                  <div>
+                    <p className="font-semibold">Tab Detection</p>
+                    <p className="text-xs text-white/60">Flag focus loss events</p>
+                  </div>
+                  <input type="checkbox" checked={true} readOnly className="h-5 w-5 rounded-full border-white/30 bg-cyan-500 text-cyan-500" />
+                </label>
+                <label className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                  <div>
+                    <p className="font-semibold">Randomize Sequence</p>
+                    <p className="text-xs text-white/60">Unique question order</p>
+                  </div>
+                  <input type="checkbox" checked={true} readOnly className="h-5 w-5 rounded-full border-white/30 bg-cyan-500 text-cyan-500" />
+                </label>
+              </div>
+            </section>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={addQuestionBlock}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-            >
-              Add question
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              {mode === "edit" ? "Save changes" : "Create test"}
-            </button>
-          </div>
+            <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-lg text-sky-700 dark:text-sky-300">✓</span>
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Feedback</h3>
+              </div>
+              <div className="space-y-3 text-sm text-[var(--foreground)]">
+                <label className="flex items-center justify-between rounded-2xl bg-[var(--surface-elevated)] px-4 py-3">
+                  <div>
+                    <p className="font-semibold">Allow review</p>
+                    <p className="text-xs text-[var(--muted)]">View correct answers</p>
+                  </div>
+                  <input type="checkbox" checked={allowReview} onChange={(e) => setAllowReview(e.target.checked)} className="h-5 w-5 rounded border-[var(--border)] text-sky-600" />
+                </label>
+                <label className="flex items-center justify-between rounded-2xl bg-[var(--surface-elevated)] px-4 py-3">
+                  <div>
+                    <p className="font-semibold">Auto-score</p>
+                    <p className="text-xs text-[var(--muted)]">Show results instantly</p>
+                  </div>
+                  <input type="checkbox" checked={allowAutoScore} onChange={(e) => setAllowAutoScore(e.target.checked)} className="h-5 w-5 rounded border-[var(--border)] text-sky-600" />
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
+                    <path d="M6 10V8a6 6 0 1 1 12 0v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="2" />
+                  </svg>
+                </span>
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Gatekeeping</h3>
+              </div>
+              <div className="flex items-center rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] pr-2 focus-within:border-sky-400">
+                <input
+                  type={showQuizPassword ? "text" : "password"}
+                  value={quizPassword}
+                  onChange={(e) => setQuizPassword(e.target.value)}
+                  placeholder="Optional password"
+                  className="w-full rounded-2xl border-0 bg-transparent px-4 py-3 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted)]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowQuizPassword((prev) => !prev)}
+                  className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--surface)]"
+                  aria-label={showQuizPassword ? "Hide password" : "Show password"}
+                >
+                  {showQuizPassword ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                      <path d="M3 3l18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      <path d="M10.5 10.5a3 3 0 0 0 4.24 4.24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                      <path d="M2.5 12c1-4 5-8 9.5-8s8.5 4 9.5 8c-1 4-5 8-9.5 8s-8.5-4-9.5-8z" stroke="currentColor" strokeWidth="2" />
+                      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </section>
+          </aside>
         </form>
       )}
     </section>

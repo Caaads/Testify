@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { RoleBadge } from "@/components/RoleBadge";
@@ -142,6 +142,8 @@ export function AppShell({
   const [showClassesDropdown, setShowClassesDropdown] = useState(false);
   const [pingMs, setPingMs] = useState<number | null>(null);
   const [pingOnline, setPingOnline] = useState(true);
+  const [showHeaderSearchInput, setShowHeaderSearchInput] = useState(Boolean(classSearchQuery));
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -244,6 +246,12 @@ export function AppShell({
     };
   }, []);
 
+  useEffect(() => {
+    if (showHeaderSearchInput) {
+      searchInputRef.current?.focus();
+    }
+  }, [showHeaderSearchInput]);
+
   return (
       <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
@@ -273,24 +281,56 @@ export function AppShell({
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
-              <label className={cn(
-                "hidden items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 sm:flex",
-                !showHeaderSearch && "sm:hidden",
-              )}>
-                <svg viewBox="0 0 24 24" className="h-4 w-4 text-[var(--muted)]" fill="none" aria-hidden="true">
-                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-                  <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-                <input
-                  defaultValue={classSearchQuery}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setClassSearchQuery(nextValue);
-                  }}
-                  placeholder={pathname.startsWith("/classes/") ? "Search tests, announcements, members" : "Search classes"}
-                  className="w-28 bg-transparent text-sm text-[var(--foreground)] outline-none"
-                />
-              </label>
+              {showHeaderSearch ? (
+                <div className="relative flex items-center">
+                  {showHeaderSearchInput ? (
+                    <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 shadow-sm">
+                      <svg viewBox="0 0 24 24" className="h-4 w-4 text-[var(--muted)]" fill="none" aria-hidden="true">
+                        <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                        <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                      <input
+                        ref={searchInputRef}
+                        defaultValue={classSearchQuery}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          setClassSearchQuery(nextValue);
+                        }}
+                        placeholder={pathname.startsWith("/classes/") ? "Search tests, announcements, members" : "Search classes"}
+                        className="w-40 bg-transparent text-sm text-[var(--foreground)] outline-none sm:w-52"
+                      />
+                    </label>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !showHeaderSearchInput;
+                      setShowHeaderSearchInput(next);
+                      if (!next) {
+                        return;
+                      }
+
+                      window.requestAnimationFrame(() => {
+                        searchInputRef.current?.focus();
+                      });
+                    }}
+                    className={cn(
+                      "grid h-10 w-10 place-items-center rounded-xl border transition",
+                      showHeaderSearchInput
+                        ? "border-sky-300 bg-sky-50 text-sky-700"
+                        : "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--muted)] hover:text-[var(--foreground)]",
+                    )}
+                    aria-label={showHeaderSearchInput ? "Hide class search" : "Show class search"}
+                    title={showHeaderSearchInput ? "Hide search" : "Show search"}
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
               <div
                 className={cn(
                   "hidden items-center gap-2 rounded-xl border px-3 py-2 text-sm sm:inline-flex",

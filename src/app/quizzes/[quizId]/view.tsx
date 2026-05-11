@@ -87,6 +87,7 @@ function getOptionFeedback(question: Question, value: string) {
 
 export function QuizClient({
   classId,
+  className,
   quizId,
   title,
   duration,
@@ -100,6 +101,7 @@ export function QuizClient({
   questions,
 }: {
   classId: string;
+  className?: string;
   quizId: string;
   title: string;
   duration: number;
@@ -284,11 +286,22 @@ export function QuizClient({
         answer: answers[question.id] || "",
       }));
 
+      // persist draft locally first
+      try {
+        const storageKey = `quiz_${quizId}_draft_answers`;
+        const stored = { answers: payload, remainingSeconds: secondsLeft, savedAt: Date.now() };
+        localStorage.setItem(storageKey, JSON.stringify(stored));
+      } catch {
+        // ignore localStorage errors
+      }
+
       try {
         const response = await fetch("/api/quizzes/attempt", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ quizId, answers: payload, remainingSeconds: secondsLeft }),
+          keepalive: true,
+          credentials: "same-origin",
         });
 
         if (response.ok) {
@@ -332,10 +345,19 @@ export function QuizClient({
         answer: answers[question.id] || "",
       }));
 
+      // persist draft locally
+      try {
+        const storageKey = `quiz_${quizId}_draft_answers`;
+        const stored = { answers: payload, remainingSeconds: secondsLeft, savedAt: Date.now() };
+        localStorage.setItem(storageKey, JSON.stringify(stored));
+      } catch {}
+
       void fetch("/api/quizzes/attempt", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ quizId, answers: payload, remainingSeconds: secondsLeft }),
+        keepalive: true,
+        credentials: "same-origin",
       }).then(() => {
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
@@ -346,6 +368,79 @@ export function QuizClient({
     }, 10000);
 
     return () => clearInterval(intervalTimer);
+  }, [isStudent, completedSubmission, attemptStarted, randomizedQuestions, answers, secondsLeft, quizId]);
+
+  // Restore draft from localStorage on mount (merge with server-restored answers)
+  useEffect(() => {
+    if (!isStudent || completedSubmission || !attemptStarted) return;
+
+    try {
+      const storageKey = `quiz_${quizId}_draft_answers`;
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { answers?: { questionId: string; answer: string }[]; remainingSeconds?: number };
+      if (!parsed || !Array.isArray(parsed.answers)) return;
+
+      // Merge stored answers into current answers state without overwriting server-provided answers unless empty
+      setAnswers((prev) => {
+        const next = { ...prev };
+        for (const entry of parsed.answers || []) {
+          if (!next[entry.questionId] || next[entry.questionId].trim() === "") {
+            next[entry.questionId] = entry.answer || "";
+          }
+        }
+        return next;
+      });
+
+      if (typeof parsed.remainingSeconds === "number") {
+        setSecondsLeft((curr) => Math.min(curr, Math.max(0, parsed.remainingSeconds!)));
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, [isStudent, completedSubmission, attemptStarted, quizId]);
+
+  // Ensure answers are saved on unload/refresh using sendBeacon or keepalive fetch
+  useEffect(() => {
+    if (!isStudent || completedSubmission || !attemptStarted) return;
+
+    const sendSave = () => {
+      try {
+        const payload = randomizedQuestions.map((question) => ({
+          questionId: question.id,
+          answer: answers[question.id] || "",
+        }));
+        const body = JSON.stringify({ quizId, answers: payload, remainingSeconds: secondsLeft });
+
+        // Always persist draft locally first
+        try {
+          const storageKey = `quiz_${quizId}_draft_answers`;
+          const stored = { answers: payload, remainingSeconds: secondsLeft, savedAt: Date.now() };
+          localStorage.setItem(storageKey, JSON.stringify(stored));
+        } catch {}
+
+        // Use keepalive fetch with credentials so cookies are sent (sendBeacon doesn't send cookies)
+        void fetch("/api/quizzes/attempt", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+          credentials: "same-origin",
+        }).catch(() => {
+          /* ignore errors during unload */
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("beforeunload", sendSave);
+    window.addEventListener("pagehide", sendSave);
+
+    return () => {
+      window.removeEventListener("beforeunload", sendSave);
+      window.removeEventListener("pagehide", sendSave);
+    };
   }, [isStudent, completedSubmission, attemptStarted, randomizedQuestions, answers, secondsLeft, quizId]);
 
   async function submitQuiz(event?: FormEvent) {
@@ -606,7 +701,19 @@ export function QuizClient({
   return (
     <section className="space-y-4">
       <header className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <h1 className="text-xl font-bold text-zinc-900">{title}</h1>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-zinc-900">{title}</h1>
+            {className ? (
+              <p className="text-sm text-zinc-600">Class: <Link href={`/classes/${classId}`} className="font-semibold text-sky-700 hover:underline">{className}</Link></p>
+            ) : null}
+          </div>
+          <div>
+            <Link href={`/classes/${classId}`} className="rounded-full p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900" aria-label="Back to class">
+              ← Back to class
+            </Link>
+          </div>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
           <span>Duration: {duration} minutes</span>
           <span>Total score: {totalScore}</span>

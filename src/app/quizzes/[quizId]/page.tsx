@@ -37,18 +37,20 @@ export default async function QuizPage({
 
   const { data: membership } = await supabase
     .from("class_students")
-    .select("id")
+    .select("id, member_role")
     .eq("class_id", quiz.class_id)
     .eq("student_id", profile.id)
     .maybeSingle();
 
   const { data: classData } = await supabase
     .from("classes")
-    .select("teacher_id")
+    .select("teacher_id, name")
     .eq("id", quiz.class_id)
     .single();
 
-  const canViewAsTeacher = classData && (classData.teacher_id === profile.id || profile.role === "admin");
+  const canViewAsTeacher =
+    Boolean(classData) &&
+    (classData?.teacher_id === profile.id || profile.role === "admin" || membership?.member_role === "teacher");
   const canTakeQuiz = Boolean(membership) && profile.role === "student";
 
   if (!canTakeQuiz && !canViewAsTeacher) {
@@ -71,6 +73,7 @@ export default async function QuizPage({
       <div className="app-enter mx-auto w-full max-w-4xl">
         <QuizClient
           classId={quiz.class_id}
+          className={classData?.name ?? "Class"}
           quizId={quiz.id}
           title={quiz.title}
           duration={quiz.duration || 15}

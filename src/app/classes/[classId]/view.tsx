@@ -55,6 +55,7 @@ export function ClassDetailClient({
   canManage,
   isOwner,
   className,
+  classYearLevel,
   canLeave,
   classDescription,
   classCreatorName,
@@ -62,6 +63,7 @@ export function ClassDetailClient({
   joinRequests,
   terms,
   quizzes,
+  mySubmissions,
   announcements,
 }: {
   classId: string;
@@ -69,6 +71,7 @@ export function ClassDetailClient({
   canManage: boolean;
   isOwner: boolean;
   className: string;
+  classYearLevel?: string | number | null;
   canLeave: boolean;
   classDescription: string;
   classCreatorName: string;
@@ -76,6 +79,7 @@ export function ClassDetailClient({
   joinRequests: JoinRequest[];
   terms: Term[];
   quizzes: Quiz[];
+  mySubmissions: { quiz_id: string; status: string }[];
   announcements: Announcement[];
 }) {
   const router = useRouter();
@@ -83,6 +87,7 @@ export function ClassDetailClient({
   const [message, setMessage] = useState<string | null>(null);
   const [termName, setTermName] = useState("");
   const [openMenuQuizId, setOpenMenuQuizId] = useState<string | null>(null);
+  const [activeTermId, setActiveTermId] = useState(terms[0]?.id ?? "");
   const [editingTerm, setEditingTerm] = useState<{ id: string; name: string } | null>(null);
   const [editTermName, setEditTermName] = useState("");
   const [savingEditTerm, setSavingEditTerm] = useState(false);
@@ -133,6 +138,17 @@ export function ClassDetailClient({
 
     return sections;
   }, [quizzes, terms, termMap, normalizedSearch]);
+
+  const submissionMap = useMemo(() => new Map((mySubmissions || []).map((s) => [s.quiz_id, s.status])), [mySubmissions]);
+
+  const visibleTermSections = useMemo(() => {
+    if (!activeTermId) {
+      return testsByTerm;
+    }
+
+    const selectedSection = testsByTerm.find((section) => section.id === activeTermId);
+    return selectedSection ? [selectedSection] : testsByTerm;
+  }, [activeTermId, testsByTerm]);
 
   function displayMemberName(entry: { student_name?: string | null; profiles?: { full_name: string | null }[] }) {
     return entry.student_name || entry.profiles?.[0]?.full_name || "Unnamed Member";
@@ -355,49 +371,374 @@ export function ClassDetailClient({
   }
 
   return (
-    <div className="space-y-4">
-      {message ? <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-800">{message}</p> : null}
+    <div className="space-y-4 rounded-[2rem] border border-sky-900/25 bg-[linear-gradient(180deg,#051024_0%,#071637_100%)] p-4 text-white shadow-[0_24px_70px_rgba(2,6,23,0.45)]">
+      {message ? (
+        <p className="rounded-2xl border border-cyan-400/20 bg-cyan-950/55 p-3 text-sm text-cyan-100">{message}</p>
+      ) : null}
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-semibold text-zinc-900">Class overview</h2>
-        <p className="mt-2 text-sm text-zinc-600">{classDescription || "No class description yet."}</p>
-        <p className="mt-1 text-xs text-zinc-500">Created by: {classCreatorName}</p>
-        {canLeave ? (
-          <button
-            type="button"
-            onClick={leaveClass}
-            className="mt-3 rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-          >
-            Leave class
-          </button>
-        ) : null}
-        {isOwner ? (
-          <button
-            type="button"
-            onClick={() => setOwnerLeaveModalOpen(true)}
-            className="mt-3 ml-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50"
-          >
-            Leave owner class
-          </button>
-        ) : null}
+      <section className="rounded-[1.5rem] border border-white/10 bg-[#08183d] p-5 shadow-[0_10px_30px_rgba(2,6,23,0.35)]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">{className}</h2>
+            <p className="text-sm font-medium text-cyan-200">
+              Year level: {classYearLevel ?? "N/A"}
+            </p>
+            <p className="text-sm text-sky-100/80">{classDescription || "No class description yet."}</p>
+            <p className="text-xs text-white/55">Created by: {classCreatorName}</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage ? (
+              <Link
+                href={`/classes/${classId}/announcements`}
+                className="inline-flex items-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/10"
+              >
+                Post Announcement
+              </Link>
+            ) : null}
+            {canManage ? (
+              <Link
+                href={`/classes/${classId}/quizzes/create`}
+                className="inline-flex items-center rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+              >
+                Create New Test
+              </Link>
+            ) : null}
+            {canLeave ? (
+              <button
+                type="button"
+                onClick={leaveClass}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/10"
+              >
+                Leave class
+              </button>
+            ) : null}
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => setOwnerLeaveModalOpen(true)}
+                className="rounded-xl border border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/15"
+              >
+                Leave owner class
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          <section className="rounded-[1.5rem] border border-white/10 bg-[#08183d] p-4 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex flex-wrap items-center gap-3 text-sm font-medium text-white/80">
+                {terms.map((term) => (
+                  <button
+                    key={term.id}
+                    type="button"
+                    onClick={() => setActiveTermId(term.id)}
+                    className={
+                      term.id === activeTermId
+                        ? "border-b-2 border-cyan-400 pb-2 text-cyan-300"
+                        : "pb-2 transition hover:text-white"
+                    }
+                  >
+                    {term.name}
+                  </button>
+                ))}
+              </div>
+              <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">
+                {visibleTermSections.reduce((total, section) => total + section.tests.length, 0)} tests
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {visibleTermSections.map((termSection) => (
+                <div key={termSection.id} className="space-y-3">
+                  {termSection.tests.map((quiz) => (
+                    <div
+                      key={quiz.id}
+                      className="rounded-2xl border border-sky-400/15 bg-[#0b1f56] p-4 shadow-sm transition hover:border-cyan-400/30 hover:bg-[#10235f]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-3">
+                            <div className="grid h-11 w-11 place-items-center rounded-xl bg-cyan-500/15 text-cyan-200">
+                              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                                <path d="M5 19V5m0 14h14M8 15l3-4 3 2 4-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-white">{quiz.title}</p>
+                              <p className="text-xs text-white/55">
+                                {quiz.duration || 0} mins • {quiz.total_score} points
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {(() => {
+                            const now = new Date();
+                            const opensAt = quiz.opens_at ? new Date(quiz.opens_at) : null;
+                            const closesAt = quiz.closes_at ? new Date(quiz.closes_at) : null;
+                            let label = "Live now";
+                            if (opensAt && now < opensAt) {
+                              label = "Upcoming";
+                            } else if (closesAt && now > closesAt) {
+                              label = "Test closed";
+                            }
+
+                            const colorClass = label === "Live now" ? "bg-emerald-400/15 text-emerald-200" : label === "Upcoming" ? "bg-amber-400/10 text-amber-200" : "bg-rose-500/10 text-rose-200";
+
+                            return (
+                              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${colorClass}`}>
+                                {label}
+                              </span>
+                            );
+                          })()}
+                          {canManage ? (
+                            <button
+                              type="button"
+                              onClick={() => setOpenMenuQuizId(openMenuQuizId === quiz.id ? null : quiz.id)}
+                              className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                              title="More options"
+                              aria-label="Open test options"
+                            >
+                              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <circle cx="12" cy="5" r="1.8" />
+                                <circle cx="12" cy="12" r="1.8" />
+                                <circle cx="12" cy="19" r="1.8" />
+                              </svg>
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-white/55">
+                        <span>Opens: {quiz.opens_at ? new Date(quiz.opens_at).toLocaleString() : "Anytime"}</span>
+                        <span>•</span>
+                        <span>Closes: {quiz.closes_at ? new Date(quiz.closes_at).toLocaleString() : "No close"}</span>
+                        <span>•</span>
+                        <span>Created by: {quiz.profiles?.[0]?.full_name || classCreatorName}</span>
+                      </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/quizzes/${quiz.id}`}
+                          className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                        >
+                          {role === "student" && submissionMap.get(quiz.id) === "in_progress" ? "Continue attempt" : "Open test"}
+                        </Link>
+                        {canManage ? (
+                          <Link
+                            href={`/quizzes/${quiz.id}/review`}
+                            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                          >
+                            Review submissions
+                          </Link>
+                        ) : null}
+                      </div>
+
+                      {openMenuQuizId === quiz.id && canManage ? (
+                        <div className="relative mt-3 rounded-2xl border border-white/10 bg-[#071637] p-2 shadow-lg">
+                          <Link
+                            href={`/classes/${classId}/quizzes/${quiz.id}/edit`}
+                            className="block rounded-xl px-3 py-2 text-sm font-semibold text-cyan-200 hover:bg-white/5"
+                          >
+                            Edit
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuQuizId(null);
+                              openDeleteModal("test", quiz.id, quiz.title);
+                            }}
+                            className="mt-1 block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-200 hover:bg-white/5"
+                          >
+                            Remove
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuQuizId(null);
+                              void toggleAutoScore(quiz.id, !quiz.allow_auto_score);
+                            }}
+                            className="mt-1 block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                          >
+                            <span className="font-semibold">Auto score:</span> {quiz.allow_auto_score ? "Visible" : "Hidden"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuQuizId(null);
+                              void toggleReview(quiz.id, !quiz.allow_review);
+                            }}
+                            className="mt-1 block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                          >
+                            <span className="font-semibold">Student review:</span> {quiz.allow_review ? "Enabled" : "Disabled"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+
+                  {termSection.tests.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-sm text-white/55">
+                      No tests in this term yet.
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+
+              {visibleTermSections.every((section) => section.tests.length === 0) ? (
+                <p className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-sm text-white/55">
+                  No tests found.
+                </p>
+              ) : null}
+            </div>
+          </section>
+
+          <article className="rounded-[1.5rem] border border-white/10 bg-[#08183d] p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-semibold text-white">Class Updates</h3>
+              <button type="button" className="text-sm font-semibold text-cyan-200 transition hover:text-cyan-100">
+                View All
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {filteredAnnouncements.map((item) => (
+                <article key={item.id} className="rounded-2xl border border-sky-400/15 bg-[#0b1f56] p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white">
+                      {String((item.creator_name || classCreatorName || "A")[0]).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold text-white">{item.creator_name || classCreatorName}</p>
+                        <p className="text-xs text-white/45">{new Date(item.created_at).toLocaleString()}</p>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-white/85">{item.content}</p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {filteredAnnouncements.length === 0 ? <p className="text-sm text-white/55">No announcements found.</p> : null}
+            </div>
+          </article>
+        </div>
+
+        <aside className="space-y-4">
+          {canManage ? (
+            <section className="rounded-[1.5rem] border border-white/10 bg-[#08183d] p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+              <h3 className="text-lg font-semibold text-white">Create term</h3>
+              <form onSubmit={createTerm} className="mt-3 flex gap-2">
+                <input
+                  required
+                  value={termName}
+                  onChange={(e) => setTermName(e.target.value)}
+                  placeholder="ex. 1st grading, Prelim, etc."
+                  className="w-full rounded-xl border border-white/10 bg-[#0b1d4d] px-3 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-cyan-300"
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                >
+                  Save
+                </button>
+              </form>
+
+              <div className="mt-4 space-y-2">
+                {terms.map((term) => (
+                  <div key={term.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    <span className="text-sm font-medium text-white">{term.name}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openEditTermModal(term.id, term.name)}
+                        className="rounded-md border border-cyan-400/20 px-2 py-1 text-xs font-semibold text-cyan-200 transition hover:bg-white/5"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openDeleteModal("term", term.id, term.name)}
+                        className="rounded-md border border-rose-400/20 px-2 py-1 text-xs font-semibold text-rose-200 transition hover:bg-white/5"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {terms.length === 0 ? <p className="text-sm text-white/55">No terms yet.</p> : null}
+              </div>
+            </section>
+          ) : null}
+
+          {canManage ? (
+            <section className="rounded-[1.5rem] border border-white/10 bg-[#08183d] p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-white">Join requests</h3>
+                <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">
+                  {joinRequests.length}
+                </span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {joinRequests.map((request) => (
+                  <div key={request.id} className="rounded-2xl border border-white/10 bg-[#0b1f56] p-4 text-sm shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-white">{displayMemberName(request)}</p>
+                      <div className="flex items-center gap-2">
+                        {request.student_role && (
+                          <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold capitalize text-white/80">{request.student_role}</span>
+                        )}
+                        {request.requested_role && (
+                          <span className="rounded-md bg-cyan-400/10 px-2 py-1 text-xs font-semibold capitalize text-cyan-200">join as {request.requested_role}</span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-white/55">Requested: {new Date(request.created_at).toLocaleString()}</p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleJoinRequest(request.id, "approved")}
+                        className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleJoinRequest(request.id, "rejected")}
+                        className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-400"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {joinRequests.length === 0 ? <p className="text-sm text-white/55">No pending requests.</p> : null}
+              </div>
+            </section>
+          ) : null}
+        </aside>
       </section>
 
       {ownerLeaveModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zinc-900">Leave owner class</h3>
-            <p className="mt-2 text-sm text-zinc-600">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#08183d] p-5 text-white shadow-xl">
+            <h3 className="text-lg font-semibold text-white">Leave owner class</h3>
+            <p className="mt-2 text-sm text-white/65">
               Transfer ownership to another teacher member, or delete the class if you do not want to pass ownership.
             </p>
 
             <div className="mt-4 space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <label className="text-xs font-semibold uppercase tracking-wide text-white/60">
                 Transfer ownership to
               </label>
               <select
                 value={ownershipTargetId}
                 onChange={(e) => setOwnershipTargetId(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-white/10 bg-[#0b1d4d] px-3 py-2 text-sm text-white"
               >
                 <option value="">Select teacher member</option>
                 {ownershipCandidates.map((candidate) => (
@@ -407,7 +748,7 @@ export function ClassDetailClient({
                 ))}
               </select>
               {ownershipCandidates.length === 0 ? (
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-amber-200">
                   No teacher member is available to receive ownership.
                 </p>
               ) : null}
@@ -418,7 +759,7 @@ export function ClassDetailClient({
                 type="button"
                 onClick={() => void transferOwnershipAndLeave()}
                 disabled={ownerActionLoading || ownershipCandidates.length === 0}
-                className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {ownerActionLoading ? "Saving..." : "Transfer and leave"}
               </button>
@@ -426,7 +767,7 @@ export function ClassDetailClient({
                 type="button"
                 onClick={() => void deleteClassAsOwner()}
                 disabled={ownerActionLoading}
-                className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-rose-400/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {ownerActionLoading ? "Working..." : "Delete class"}
               </button>
@@ -436,7 +777,7 @@ export function ClassDetailClient({
               type="button"
               onClick={() => setOwnerLeaveModalOpen(false)}
               disabled={ownerActionLoading}
-              className="mt-3 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-sm text-white/75 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
@@ -444,243 +785,6 @@ export function ClassDetailClient({
         </div>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-1">
-        <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-semibold text-zinc-900">Latest announcements</h3>
-          <div className="mt-3 space-y-3">
-            {filteredAnnouncements.map((item) => (
-              <article key={item.id} className="rounded-2xl border border-sky-500/20 bg-[#0b1f56] p-4 text-white shadow-sm">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-cyan-100">{className}</p>
-                  <p className="mt-1 text-xs text-white/70">by {item.creator_name || classCreatorName}</p>
-                  <p className="mt-3 text-sm text-white/90">{item.content}</p>
-                  <p className="mt-3 text-xs text-white/60">{new Date(item.created_at).toLocaleString()}</p>
-                </div>
-              </article>
-            ))}
-            {filteredAnnouncements.length === 0 ? <p className="text-sm text-zinc-500">No announcements found.</p> : null}
-          </div>
-        </article>
-      </section>
-
-      {canManage ? (
-        <section className="grid gap-4 lg:grid-cols-2">
-          <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h3 className="text-lg font-semibold text-zinc-900">Join requests</h3>
-            <div className="mt-3 space-y-2">
-              {joinRequests.map((request) => (
-                <div key={request.id} className="rounded-lg border border-zinc-200 p-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-zinc-900">{displayMemberName(request)}</p>
-                    <div className="flex items-center gap-2">
-                      {request.student_role && (
-                        <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold capitalize text-zinc-800">{request.student_role}</span>
-                      )}
-                      {request.requested_role && (
-                        <span className="rounded-md bg-sky-100 px-2 py-1 text-xs font-semibold capitalize text-sky-800">join as {request.requested_role}</span>
-                      )}
-                    </div>
-                  </div>
-                  <p className="mt-1 text-xs text-zinc-500">Requested: {new Date(request.created_at).toLocaleString()}</p>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleJoinRequest(request.id, "approved")}
-                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleJoinRequest(request.id, "rejected")}
-                      className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {joinRequests.length === 0 ? (
-                <p className="text-sm text-zinc-500">No pending requests.</p>
-              ) : null}
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h3 className="text-lg font-semibold text-zinc-900">Create term</h3>
-            <form onSubmit={createTerm} className="mt-3 flex gap-2">
-              <input
-                required
-                value={termName}
-                onChange={(e) => setTermName(e.target.value)}
-                placeholder="ex. 1st grading, Prelim, etc."
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-              />
-              <button
-                type="submit"
-                className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700"
-              >
-                Save
-              </button>
-            </form>
-
-            <div className="mt-3 space-y-2">
-              {terms.map((term) => (
-                <div key={term.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 px-3 py-2">
-                  <span className="text-sm font-medium text-zinc-800">{term.name}</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openEditTermModal(term.id, term.name)}
-                      className="rounded-md border border-sky-300 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openDeleteModal("term", term.id, term.name)}
-                      className="rounded-md border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {terms.length === 0 ? (
-                <p className="text-sm text-zinc-500">No terms yet.</p>
-              ) : null}
-            </div>
-          </article>
-        </section>
-      ) : null}
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold text-zinc-900">Tests</h3>
-
-        {canManage ? (
-          <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            <p className="text-sm text-zinc-700">Create tests from the dedicated builder page.</p>
-            {terms.length > 0 ? (
-              <Link
-                href={`/classes/${classId}/quizzes/create`}
-                className="mt-2 inline-flex rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                Open test builder
-              </Link>
-            ) : (
-              <p className="mt-2 text-xs text-amber-700">Create a term first before making a test.</p>
-            )}
-          </div>
-        ) : null}
-
-        <div className="mt-4 space-y-5">
-          {testsByTerm.map((termSection) => (
-            <div key={termSection.id} className="space-y-2">
-              <h4 className="text-xl font-semibold tracking-wide text-sky-700 uppercase">{termSection.name}</h4>
-
-              {termSection.tests.map((quiz) => (
-                <div key={quiz.id} className="rounded-lg border border-zinc-200 p-3 relative">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-zinc-900">{quiz.title}</p>
-                      <p className="text-sm text-zinc-600">
-                        Duration: {quiz.duration || 0} min | Total: {quiz.total_score}
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        Opens: {quiz.opens_at ? new Date(quiz.opens_at).toLocaleString() : "Anytime"} | Closes: {quiz.closes_at ? new Date(quiz.closes_at).toLocaleString() : "No close"}
-                      </p>
-                      <p className="text-xs text-zinc-500">Created by: {quiz.profiles?.[0]?.full_name || classCreatorName}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/quizzes/${quiz.id}`}
-                        className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700"
-                      >
-                        Open test
-                      </Link>
-                      {canManage ? (
-                        <>
-                          <Link
-                            href={`/quizzes/${quiz.id}/review`}
-                            className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                          >
-                            Review test submissions
-                          </Link>
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setOpenMenuQuizId(openMenuQuizId === quiz.id ? null : quiz.id)}
-                              className="rounded-lg border border-zinc-300 p-2 text-zinc-700 hover:bg-zinc-50"
-                              title="More options"
-                              aria-label="Open test options"
-                            >
-                              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                <circle cx="12" cy="5" r="1.8" />
-                                <circle cx="12" cy="12" r="1.8" />
-                                <circle cx="12" cy="19" r="1.8" />
-                              </svg>
-                            </button>
-                            {openMenuQuizId === quiz.id ? (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setOpenMenuQuizId(null)} />
-                                <div className="absolute right-0 bottom-full mb-1 z-50 min-w-48 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
-                                  <Link
-                                    href={`/classes/${classId}/quizzes/${quiz.id}/edit`}
-                                    className="block border-b border-zinc-200 px-4 py-3 text-sm font-semibold text-sky-700 hover:bg-sky-50"
-                                  >
-                                    Edit
-                                  </Link>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenMenuQuizId(null);
-                                      openDeleteModal("test", quiz.id, quiz.title);
-                                    }}
-                                    className="w-full border-b border-zinc-200 px-4 py-3 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                                  >
-                                    Remove
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenMenuQuizId(null);
-                                      void toggleAutoScore(quiz.id, !quiz.allow_auto_score);
-                                    }}
-                                    className="w-full border-b border-zinc-200 px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-100"
-                                  >
-                                    <span className="font-semibold">Auto score:</span> {quiz.allow_auto_score ? "Visible" : "Hidden"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenMenuQuizId(null);
-                                      void toggleReview(quiz.id, !quiz.allow_review);
-                                    }}
-                                    className="w-full px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-100"
-                                  >
-                                    <span className="font-semibold">Student review:</span> {quiz.allow_review ? "Enabled" : "Disabled"}
-                                  </button>
-                                </div>
-                              </>
-                            ) : null}
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {termSection.tests.length === 0 ? (
-                <p className="text-sm text-zinc-500">No tests in this term yet.</p>
-              ) : null}
-            </div>
-          ))}
-
-          {testsByTerm.every((section) => section.tests.length === 0) ? <p className="text-sm text-zinc-500">No tests found.</p> : null}
-        </div>
-      </section>
 
       {editingTerm ? (
         <div className="fixed inset-0 z-70 grid place-items-center p-4">

@@ -148,31 +148,36 @@ function RolePieChart({ stats }: { stats: PlatformRoleStats }) {
   );
 }
 
-function UpcomingEventsPanel({ events }: { events: UpcomingEvent[] }) {
+function UpcomingTestsPanel({ events }: { events: UpcomingEvent[] }) {
   return (
-    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]">
-      <h3 className="text-lg font-semibold text-[var(--foreground)]">Upcoming events</h3>
+    <section>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-[var(--foreground)]">Upcoming Tests</h3>
+        <span className="text-sm text-[var(--muted)]">{events.length} {events.length === 1 ? 'test' : 'tests'}</span>
+      </div>
 
-      <div className="mt-4 divide-y divide-[var(--border)]">
-        {events.map((event) => (
-          <div key={event.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-            <div className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-sky-300 bg-sky-50 text-sky-600 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
-                <path d="M5 12l4 4 10-10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <Link href={`/quizzes/${event.id}`} className="block truncate text-sm font-medium text-sky-700 hover:underline dark:text-sky-300">
-                {event.title}
+      <div className="">
+        {events.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {events.map((event) => (
+              <Link
+                key={event.id}
+                href={`/quizzes/${event.id}`}
+                className="rounded-2xl border border-sky-500/20 bg-[#0b1f56] px-4 py-4 text-white shadow-[var(--shadow)] transition hover:border-cyan-400/30 hover:bg-[#10235f]"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-cyan-100">{event.title}</p>
+                  <p className="mt-1 text-xs text-white/70">{event.className}</p>
+                  <p className="mt-3 text-xs text-white/60">{formatUpcomingEventDate(event.opensAt)}</p>
+                </div>
               </Link>
-              <p className="mt-0.5 text-sm text-[var(--foreground)]">{formatUpcomingEventDate(event.opensAt)}</p>
-              <p className="text-xs text-[var(--muted)]">{event.className}</p>
-            </div>
+            ))}
           </div>
-        ))}
-
-        {events.length === 0 ? <p className="py-3 text-sm text-[var(--muted)]">No upcoming events found.</p> : null}
+        ) : (
+          <div className="rounded-2xl border border-sky-500/10 bg-[#0b1f56] px-4 py-4 text-white shadow-[var(--shadow)]">
+            <p className="text-sm text-cyan-100">There&apos;s no upcoming test for now.</p>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -382,8 +387,31 @@ export default async function DashboardPage() {
   const joinedTeacherIds = Array.from(new Set(joinedClasses.map((item) => item.classes.teacher_id).filter(Boolean)));
   const teacherNameMap = await loadCreatorNames(supabase, joinedTeacherIds as string[]);
 
-  // Calculate stats
   const now = new Date();
+  const upcomingEvents: UpcomingEvent[] = scheduledQuizzes
+    .filter((quiz) => {
+      if (!quiz.opens_at) return false;
+      // Only include tests that haven't closed yet
+      if (quiz.closes_at) {
+        const closesAt = new Date(quiz.closes_at);
+        if (closesAt <= now) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      // Sort by opens_at ascending (nearest first)
+      const aDate = a.opens_at ? new Date(a.opens_at).getTime() : Infinity;
+      const bDate = b.opens_at ? new Date(b.opens_at).getTime() : Infinity;
+      return aDate - bDate;
+    })
+    .map((quiz) => ({
+      id: quiz.id,
+      title: quiz.title,
+      className: classNameById.get(quiz.class_id) || "Class",
+      opensAt: quiz.opens_at,
+    }))
+    .slice(0, 4);
+
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
@@ -440,16 +468,6 @@ export default async function DashboardPage() {
     );
   }
 
-  const upcomingEvents: UpcomingEvent[] = scheduledQuizzes
-    .filter((quiz) => Boolean(quiz.opens_at))
-    .map((quiz) => ({
-      id: quiz.id,
-      title: quiz.title,
-      className: classNameById.get(quiz.class_id) || "Class",
-      opensAt: quiz.opens_at,
-    }))
-    .slice(0, 4);
-
   const enrolledCards = [...teacherClasses.map((item) => ({
     href: `/classes/${item.id}`,
     name: item.name,
@@ -491,71 +509,69 @@ export default async function DashboardPage() {
           </section>
         ) : null}
 
-        <section className="space-y-6">
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-[var(--foreground)]">My Enrolled Classes</h3>
-              <Link href="/classes" className="text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300">
-                View All
-              </Link>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {enrolledCards.map((item) => (
-                <ClassCard
-                  key={`${item.href}-${item.name}`}
-                  href={item.href}
-                  name={item.name}
-                  yearLevel={item.yearLevel}
-                  teacherName={item.teacherName}
-                />
-              ))}
-
-              {profile.role === "student" ? (
-                <ActionTile href="/classes" title="Join a New Class" subtitle="Enter Class name" />
-              ) : null}
-              {profile.role === "teacher" || profile.role === "admin" ? (
-                <ActionTile href="/classes" title="Create a New Class" subtitle="Set up a new learning space" />
-              ) : null}
-            </div>
-          </section>
-
-          {upcomingEvents.length > 0 ? (
+        <section className="grid gap-6 lg:grid-cols-[1fr_340px]">
+          <div className="space-y-6">
             <section>
-              <UpcomingEventsPanel events={upcomingEvents} />
-            </section>
-          ) : null}
-
-          {recentAnnouncements.length > 0 ? (
-            <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-[var(--foreground)]">Announcements</h3>
-                <span className="text-sm text-[var(--muted)]">Latest class updates</span>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">My Enrolled Classes</h3>
+                <Link href="/classes" className="text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300">
+                  View All
+                </Link>
               </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {recentAnnouncements.map((announcement) => (
-                  <article
-                    key={announcement.id}
-                    className="rounded-2xl border border-sky-500/20 bg-[#0b1f56] px-4 py-4 text-white shadow-[var(--shadow)]"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-cyan-100">{announcement.className}</p>
-                      <p className="mt-1 text-xs text-white/70">by {announcement.teacherName}</p>
-                      <p className="mt-3 line-clamp-3 text-sm text-white/90">{announcement.content || "No content"}</p>
-                      <p className="mt-3 text-xs text-white/60">{formatDateTime(announcement.createdAt)}</p>
-                    </div>
-                  </article>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {enrolledCards.map((item) => (
+                  <ClassCard
+                    key={`${item.href}-${item.name}`}
+                    href={item.href}
+                    name={item.name}
+                    yearLevel={item.yearLevel}
+                    teacherName={item.teacherName}
+                  />
                 ))}
+
+                {profile.role === "student" ? (
+                  <ActionTile href="/classes" title="Join a New Class" subtitle="Enter Class name" />
+                ) : null}
+                {profile.role === "teacher" || profile.role === "admin" ? (
+                  <ActionTile href="/classes" title="Create a New Class" subtitle="Set up a new learning space" />
+                ) : null}
               </div>
             </section>
-          ) : null}
 
-          {scheduledQuizzes.length > 0 ? (
             <section>
               <StudentSchedulePanel schedules={scheduleItems} />
             </section>
-          ) : null}
+          </div>
+
+          <aside className="space-y-6">
+            <UpcomingTestsPanel events={upcomingEvents} />
+
+            {recentAnnouncements.length > 0 ? (
+              <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-[var(--foreground)]">Announcements</h3>
+                  <span className="text-sm text-[var(--muted)]">Latest class updates</span>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  {recentAnnouncements.map((announcement) => (
+                    <article
+                      key={announcement.id}
+                      className="rounded-2xl border border-sky-500/20 bg-[#0b1f56] px-4 py-4 text-white shadow-[var(--shadow)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-cyan-100">{announcement.className}</p>
+                        <p className="mt-1 text-xs text-white/70">by {announcement.teacherName}</p>
+                        <p className="mt-3 line-clamp-3 text-sm text-white/90">{announcement.content || "No content"}</p>
+                        <p className="mt-3 text-xs text-white/60">{formatDateTime(announcement.createdAt)}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </aside>
         </section>
       </div>
     </AppShell>

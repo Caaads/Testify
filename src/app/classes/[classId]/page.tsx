@@ -79,6 +79,16 @@ export default async function ClassPage({
     .eq("id", classData.teacher_id)
     .maybeSingle();
 
+  // Fetch current student's submissions for quizzes in this class so we can show continue/open state
+  const quizIds = (quizzes ?? []).map((q: any) => q.id).filter(Boolean);
+  const { data: mySubmissions } = quizIds.length
+    ? await supabase
+        .from("submissions")
+        .select("quiz_id, status")
+        .in("quiz_id", quizIds)
+        .eq("student_id", profile.id)
+    : { data: [] };
+
   const announcementCreatorIds = [
     ...new Set((announcements ?? []).map((item: { created_by: string | null }) => item.created_by).filter(Boolean)),
   ] as string[];
@@ -173,6 +183,7 @@ export default async function ClassPage({
           canManage={canManage}
           isOwner={isTeacherOwner}
           className={classData.name}
+          classYearLevel={classData.year_level}
           classDescription={classData.description || ""}
           classCreatorName={classCreatorName}
           canLeave={canLeave}
@@ -180,6 +191,7 @@ export default async function ClassPage({
           joinRequests={joinRequests ?? []}
           terms={terms ?? []}
           quizzes={quizzes ?? []}
+          mySubmissions={mySubmissions ?? []}
            announcements={announcementsWithCreators}
         />
       </div>

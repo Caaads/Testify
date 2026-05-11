@@ -2,9 +2,9 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { requireProfile } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { CreateQuizClient } from "./view";
+import { CreateQuizClient } from "../create/view";
 
-export default async function CreateQuizPage({
+export default async function AiQuizBuilderPage({
   params,
 }: {
   params: Promise<{ classId: string }>;
@@ -46,11 +46,11 @@ export default async function CreateQuizPage({
     <AppShell
       name={profile.full_name || "User"}
       role={profile.role}
-      title="Create Test"
+      title="AI Test Builder"
       subtitle={`Class: ${classData.name}`}
     >
       <div className="mx-auto w-full max-w-5xl">
-        <CreateQuizClient classId={classId} terms={terms ?? []} />
+        <CreateQuizClient classId={classId} terms={terms ?? []} showAiBuilder />
       </div>
     </AppShell>
   );

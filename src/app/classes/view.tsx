@@ -124,9 +124,10 @@ function getClassIconConfig(name: string, yearLevel: string | null) {
     };
   }
 
+  const initial = name.trim().charAt(0).toUpperCase() || "C";
   return {
     bg: "bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
-    icon: <span className="text-sm font-black">C</span>,
+    icon: <span className="text-sm font-black">{initial}</span>,
   };
 }
 
@@ -139,6 +140,7 @@ export function ClassesClient({
   joinedClassIds,
   joinedClassRoleById,
   pendingJoinRequestClassIds,
+  classHasPasswordById,
 }: {
   profileId: string;
   role: UserRole;
@@ -148,6 +150,7 @@ export function ClassesClient({
   joinedClassIds: string[];
   joinedClassRoleById: Record<string, string | null>;
   pendingJoinRequestClassIds: string[];
+  classHasPasswordById: Record<string, boolean>;
 }) {
   const router = useRouter();
   const searchQuery = useClassSearchQuery();
@@ -171,10 +174,28 @@ export function ClassesClient({
   const [editCourseOther, setEditCourseOther] = useState("");
   const [savingEditClass, setSavingEditClass] = useState(false);
 
-  const [joinPassword, setJoinPassword] = useState<Record<string, string>>({});
-  const [joinRoleModalClassId, setJoinRoleModalClassId] = useState<string | null>(null);
+  const [joinModalClassId, setJoinModalClassId] = useState<string | null>(null);
+  const [joinModalRole, setJoinModalRole] = useState<"student" | "teacher">("student");
+  const [joinModalPassword, setJoinModalPassword] = useState("");
   const [requestedClassIds, setRequestedClassIds] = useState<string[]>(pendingJoinRequestClassIds);
   const search = searchQuery.trim().toLowerCase();
+
+  const joinModalClass = useMemo(
+    () => classes.find((item) => item.id === joinModalClassId) || null,
+    [classes, joinModalClassId],
+  );
+  const joinModalRequiresPassword = Boolean(joinModalClassId && classHasPasswordById[joinModalClassId]);
+
+  function openJoinModal(item: ClassItem) {
+    setJoinModalClassId(item.id);
+    setJoinModalRole(role === "teacher" || role === "admin" ? "teacher" : "student");
+    setJoinModalPassword("");
+  }
+
+  function closeJoinModal() {
+    setJoinModalClassId(null);
+    setJoinModalPassword("");
+  }
 
   const visibleClasses = useMemo(() => {
     if (!search) return classes;
@@ -350,11 +371,11 @@ export function ClassesClient({
     router.refresh();
   }
 
-  async function joinClass(classId: string, joinAs: "student" | "teacher" = "student") {
+  async function joinClass(classId: string, joinAs: "student" | "teacher" = "student", classPassword = "") {
     const response = await fetch("/api/classes/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classId, classPassword: joinPassword[classId] || "", joinAs }),
+      body: JSON.stringify({ classId, classPassword, joinAs }),
     });
 
     const payload = (await response.json()) as { error?: string; message?: string };
@@ -366,7 +387,7 @@ export function ClassesClient({
 
     setMessage(payload.message || "Join request submitted.");
     setRequestedClassIds((current) => Array.from(new Set([...current, classId])));
-    setJoinRoleModalClassId(null);
+    closeJoinModal();
   }
 
   return (
@@ -543,29 +564,13 @@ export function ClassesClient({
                   ) : null}
 
                   {(role === "student" || role === "teacher" || role === "admin") && !isJoined && !isTeacherOwner && !isJoinRequested ? (
-                    <>
-                      <input
-                        value={joinPassword[item.id] || ""}
-                        onChange={(e) =>
-                          setJoinPassword((prev) => ({ ...prev, [item.id]: e.target.value }))
-                        }
-                        placeholder="Password (if required)"
-                        className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (role === "teacher" || role === "admin") {
-                            setJoinRoleModalClassId(item.id);
-                            return;
-                          }
-                          void joinClass(item.id, "student");
-                        }}
-                        className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-                      >
-                        Request join
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={() => openJoinModal(item)}
+                      className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                    >
+                      Request to join
+                    </button>
                   ) : null}
 
                   {(role === "student" || role === "teacher" || role === "admin") && isJoinRequested && !isJoined && !isTeacherOwner ? (
@@ -594,36 +599,64 @@ export function ClassesClient({
         </div>
       </section>
 
-      {joinRoleModalClassId ? (
+      {joinModalClass ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zinc-900">Join class as</h3>
-            <p className="mt-2 text-sm text-zinc-600">
-              Choose your role for this class. Teacher role can manage tests, announcements, and members.
-            </p>
+            <h3 className="text-lg font-semibold text-zinc-900">Request to join</h3>
+            <p className="mt-1 text-sm text-zinc-600">{joinModalClass.name}</p>
+
+            {(role === "teacher" || role === "admin") ? (
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setJoinModalRole("student")}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${joinModalRole === "student" ? "bg-sky-600 text-white" : "border border-zinc-300 text-zinc-700 hover:bg-zinc-50"}`}
+                >
+                  Join as student
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setJoinModalRole("teacher")}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${joinModalRole === "teacher" ? "bg-sky-600 text-white" : "border border-zinc-300 text-zinc-700 hover:bg-zinc-50"}`}
+                >
+                  Join as teacher
+                </button>
+              </div>
+            ) : null}
+
+            {joinModalRequiresPassword ? (
+              <div className="mt-4">
+                <label className="mb-2 block text-sm font-medium text-zinc-700">Class password</label>
+                <input
+                  type="password"
+                  value={joinModalPassword}
+                  onChange={(e) => setJoinModalPassword(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                  placeholder="Enter class password"
+                />
+              </div>
+            ) : (
+              <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                This class has no password. Confirm your join request to continue.
+              </p>
+            )}
+
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button
                 type="button"
-                onClick={() => void joinClass(joinRoleModalClassId, "student")}
-                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => void joinClass(joinModalClass.id, joinModalRole, joinModalPassword.trim())}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
               >
-                Join as student
+                {joinModalRequiresPassword ? "Submit request" : "Confirm request"}
               </button>
               <button
                 type="button"
-                onClick={() => void joinClass(joinRoleModalClassId, "teacher")}
-                className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+                onClick={closeJoinModal}
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                Join as teacher
+                Cancel
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setJoinRoleModalClassId(null)}
-              className="mt-3 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-            >
-              Cancel
-            </button>
           </div>
         </div>
       ) : null}
