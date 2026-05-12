@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatWallClockDateTime, formatWallClockTime, toStoredWallClockValue, wallClockDateToValue } from "@/lib/date-utils";
 
 type ScheduleItem = {
   id: string;
@@ -12,10 +13,10 @@ type ScheduleItem = {
 };
 
 function toDateKey(value: string | Date) {
-  const date = typeof value === "string" ? new Date(value) : value;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const normalized = typeof value === "string" ? toStoredWallClockValue(value) : wallClockDateToValue(value);
+  const year = normalized.slice(0, 4);
+  const month = normalized.slice(5, 7);
+  const day = normalized.slice(8, 10);
   return `${year}-${month}-${day}`;
 }
 
@@ -23,7 +24,7 @@ function formatDateTime(value: string | null) {
   if (!value) {
     return "No schedule";
   }
-  return new Date(value).toLocaleString();
+  return formatWallClockDateTime(value);
 }
 
 function formatHeaderDate(dateKey: string) {
@@ -38,21 +39,10 @@ function formatHeaderDate(dateKey: string) {
 
 function formatTimeRange(opensAt: string | null, closesAt: string | null) {
   if (!opensAt) return "";
-  const open = new Date(opensAt);
-  const close = closesAt ? new Date(closesAt) : null;
-  
-  const openStr = open.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  
-  if (close) {
-    const closeStr = close.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+  const openStr = formatWallClockTime(opensAt);
+  const closeStr = closesAt ? formatWallClockTime(closesAt) : null;
+
+  if (closeStr) {
     return `${openStr} - ${closeStr}`;
   }
   

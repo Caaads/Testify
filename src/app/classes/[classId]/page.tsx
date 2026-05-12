@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { requireProfile } from "@/lib/auth";
+import { formatWallClockDateTime } from "@/lib/date-utils";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { ClassDetailClient } from "./view";
 

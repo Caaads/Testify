@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canManageClasses, getApiAuthProfile } from "@/lib/api-auth";
+import { toStoredWallClockValue } from "@/lib/date-utils";
 
 type IncomingQuestion = {
   type: "mcq" | "checkbox" | "dropdown" | "identification" | "essay";
@@ -186,8 +187,8 @@ async function buildQuizPayload(body: unknown) {
     ? (payload.questions as IncomingQuestion[])
     : [];
 
-  const opensAt = opensAtRaw ? new Date(opensAtRaw) : null;
-  const closesAt = closesAtRaw ? new Date(closesAtRaw) : null;
+  const opensAt = opensAtRaw ? toStoredWallClockValue(opensAtRaw) : null;
+  const closesAt = closesAtRaw ? toStoredWallClockValue(closesAtRaw) : null;
 
   return {
     classId,
@@ -234,10 +235,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if ((opensAt && Number.isNaN(opensAt.getTime())) || (closesAt && Number.isNaN(closesAt.getTime()))) {
-    return NextResponse.json({ error: "Invalid schedule date/time." }, { status: 400 });
-  }
-
   if (opensAt && closesAt && closesAt <= opensAt) {
     return NextResponse.json(
       { error: "Close time must be after open time." },
@@ -270,8 +267,8 @@ export async function POST(request: NextRequest) {
       allow_auto_score: allowAutoScore,
       allow_review: allowReview,
       quiz_password: quizPassword || null,
-      opens_at: opensAt ? opensAt.toISOString() : null,
-      closes_at: closesAt ? closesAt.toISOString() : null,
+      opens_at: opensAt,
+      closes_at: closesAt,
       created_by: auth.profile.id,
     })
     .select("id")
@@ -344,10 +341,6 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  if ((opensAt && Number.isNaN(opensAt.getTime())) || (closesAt && Number.isNaN(closesAt.getTime()))) {
-    return NextResponse.json({ error: "Invalid schedule date/time." }, { status: 400 });
-  }
-
   if (opensAt && closesAt && closesAt <= opensAt) {
     return NextResponse.json(
       { error: "Close time must be after open time." },
@@ -393,8 +386,8 @@ export async function PATCH(request: NextRequest) {
       allow_auto_score: allowAutoScore,
       allow_review: allowReview,
       quiz_password: quizPassword || null,
-      opens_at: opensAt ? opensAt.toISOString() : null,
-      closes_at: closesAt ? closesAt.toISOString() : null,
+      opens_at: opensAt,
+      closes_at: closesAt,
     })
     .eq("id", quizId);
 

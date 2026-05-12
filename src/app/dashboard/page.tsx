@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { requireProfile } from "@/lib/auth";
+import { formatWallClockDateTime, formatWallClockTime, getCurrentWallClockValue, toStoredWallClockValue, wallClockDateToValue } from "@/lib/date-utils";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { StudentSchedulePanel } from "./StudentSchedulePanel";
 import { ActionTile } from "./ActionTile";
@@ -75,27 +76,14 @@ function formatDateLabel(date: Date) {
 function formatUpcomingEventDate(value: string | null) {
   if (!value) return "No schedule";
 
-  const date = new Date(value);
-  const today = new Date();
-  const isToday =
-    date.getFullYear() === today.getFullYear() &&
-    date.getMonth() === today.getMonth() &&
-    date.getDate() === today.getDate();
+  const normalized = toStoredWallClockValue(value);
+  const todayKey = wallClockDateToValue(new Date()).slice(0, 10);
 
-  if (isToday) {
-    return `Today, ${date.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    })}`;
+  if (normalized.slice(0, 10) === todayKey) {
+    return `Today, ${formatWallClockTime(normalized)}`;
   }
 
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatWallClockDateTime(normalized);
 }
 
 function RolePieChart({ stats }: { stats: PlatformRoleStats }) {
@@ -387,22 +375,22 @@ export default async function DashboardPage() {
   const joinedTeacherIds = Array.from(new Set(joinedClasses.map((item) => item.classes.teacher_id).filter(Boolean)));
   const teacherNameMap = await loadCreatorNames(supabase, joinedTeacherIds as string[]);
 
-  const now = new Date();
+  const now = getCurrentWallClockValue();
   const upcomingEvents: UpcomingEvent[] = scheduledQuizzes
     .filter((quiz) => {
       if (!quiz.opens_at) return false;
       // Only include tests that haven't closed yet
       if (quiz.closes_at) {
-        const closesAt = new Date(quiz.closes_at);
+        const closesAt = toStoredWallClockValue(quiz.closes_at);
         if (closesAt <= now) return false;
       }
       return true;
     })
     .sort((a, b) => {
       // Sort by opens_at ascending (nearest first)
-      const aDate = a.opens_at ? new Date(a.opens_at).getTime() : Infinity;
-      const bDate = b.opens_at ? new Date(b.opens_at).getTime() : Infinity;
-      return aDate - bDate;
+      const aDate = a.opens_at ? toStoredWallClockValue(a.opens_at) : "";
+      const bDate = b.opens_at ? toStoredWallClockValue(b.opens_at) : "";
+      return aDate.localeCompare(bDate);
     })
     .map((quiz) => ({
       id: quiz.id,
@@ -412,13 +400,16 @@ export default async function DashboardPage() {
     }))
     .slice(0, 4);
 
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const nowDate = new Date();
+  const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+  const tomorrowStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1);
+  const todayStartValue = `${todayStart.getFullYear()}-${String(todayStart.getMonth() + 1).padStart(2, "0")}-${String(todayStart.getDate()).padStart(2, "0")}T00:00:00`;
+  const tomorrowStartValue = `${tomorrowStart.getFullYear()}-${String(tomorrowStart.getMonth() + 1).padStart(2, "0")}-${String(tomorrowStart.getDate()).padStart(2, "0")}T00:00:00`;
 
   const todayTests = scheduledQuizzes.filter((quiz) => {
     if (!quiz.opens_at) return false;
-    const openTime = new Date(quiz.opens_at);
-    return openTime >= todayStart && openTime < tomorrowStart;
+    const openTime = toStoredWallClockValue(quiz.opens_at);
+    return openTime >= todayStartValue && openTime < tomorrowStartValue;
   });
 
   const scheduleItems = scheduledQuizzes.map((quiz) => ({

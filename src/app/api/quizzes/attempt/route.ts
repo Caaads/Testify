@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiAuthProfile } from "@/lib/api-auth";
+import { getCurrentWallClockValue, toStoredWallClockValue } from "@/lib/date-utils";
 
 type AttemptAnswer = {
   questionId: string;
@@ -65,9 +66,9 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const now = new Date();
-  const opensAt = quiz.opens_at ? new Date(quiz.opens_at) : null;
-  const closesAt = quiz.closes_at ? new Date(quiz.closes_at) : null;
+  const now = getCurrentWallClockValue();
+  const opensAt = quiz.opens_at ? toStoredWallClockValue(quiz.opens_at) : null;
+  const closesAt = quiz.closes_at ? toStoredWallClockValue(quiz.closes_at) : null;
 
   if (!existing) {
     if (opensAt && now < opensAt) {

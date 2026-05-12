@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiAuthProfile } from "@/lib/api-auth";
+import { getCurrentWallClockValue, toStoredWallClockValue } from "@/lib/date-utils";
 
 type AnswerPayload = {
   questionId: string;
@@ -76,9 +77,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You are not a member of this class." }, { status: 403 });
   }
 
-  const now = new Date();
-  const opensAt = quiz.opens_at ? new Date(quiz.opens_at) : null;
-  const closesAt = quiz.closes_at ? new Date(quiz.closes_at) : null;
+  const now = getCurrentWallClockValue();
+  const opensAt = quiz.opens_at ? toStoredWallClockValue(quiz.opens_at) : null;
+  const closesAt = quiz.closes_at ? toStoredWallClockValue(quiz.closes_at) : null;
 
   const { data: existingSubmission } = await auth.supabase
     .from("submissions")

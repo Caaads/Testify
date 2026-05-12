@@ -158,15 +158,15 @@ create table if not exists quizzes (
   total_score integer default 0,
   allow_auto_score boolean default true,
   allow_review boolean default false,
-  opens_at timestamptz,
-  closes_at timestamptz,
+  opens_at text,
+  closes_at text,
   quiz_password text,
   created_at timestamptz default now()
 );
 
 alter table quizzes add column if not exists allow_review boolean default false;
-alter table quizzes add column if not exists opens_at timestamptz;
-alter table quizzes add column if not exists closes_at timestamptz;
+alter table quizzes add column if not exists opens_at text;
+alter table quizzes add column if not exists closes_at text;
 alter table quizzes add column if not exists quiz_password text;
 
 create table if not exists questions (

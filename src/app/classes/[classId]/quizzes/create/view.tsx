@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toDatetimeLocalValue } from "@/lib/date-utils";
 
 type Term = { id: string; name: string };
 
@@ -141,8 +142,8 @@ export function CreateQuizClient({
   const [allowReview, setAllowReview] = useState(quiz?.allow_review ?? false);
   const [quizPassword, setQuizPassword] = useState(quiz?.quiz_password ?? "");
   const [showQuizPassword, setShowQuizPassword] = useState(false);
-  const [opensAt, setOpensAt] = useState(quiz?.opens_at ? quiz.opens_at.slice(0, 16) : "");
-  const [closesAt, setClosesAt] = useState(quiz?.closes_at ? quiz.closes_at.slice(0, 16) : "");
+  const [opensAt, setOpensAt] = useState(quiz?.opens_at ? toDatetimeLocalValue(quiz.opens_at) : "");
+  const [closesAt, setClosesAt] = useState(quiz?.closes_at ? toDatetimeLocalValue(quiz.closes_at) : "");
   const [referenceMaterialFile, setReferenceMaterialFile] = useState<File | null>(null);
   const [referenceMaterialTotal, setReferenceMaterialTotal] = useState(6);
   const [referenceMaterialBreakdown, setReferenceMaterialBreakdown] = useState<QuestionBreakdown>({

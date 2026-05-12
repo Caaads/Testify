@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { formatWallClockDateTime } from "@/lib/date-utils";
 import { useClassSearchQuery } from "@/components/AppShell";
 import type { UserRole } from "@/lib/supabase/types";
 
@@ -495,9 +496,9 @@ export function ClassDetailClient({
                       </div>
 
                       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-white/55">
-                        <span>Opens: {quiz.opens_at ? new Date(quiz.opens_at).toLocaleString() : "Anytime"}</span>
+                        <span>Opens: {quiz.opens_at ? formatWallClockDateTime(quiz.opens_at) : "Anytime"}</span>
                         <span>•</span>
-                        <span>Closes: {quiz.closes_at ? new Date(quiz.closes_at).toLocaleString() : "No close"}</span>
+                        <span>Closes: {quiz.closes_at ? formatWallClockDateTime(quiz.closes_at) : "No close"}</span>
                         <span>•</span>
                         <span>Created by: {quiz.profiles?.[0]?.full_name || classCreatorName}</span>
                       </div>

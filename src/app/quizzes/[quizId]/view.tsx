@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatWallClockDateTime, getCurrentWallClockValue, toStoredWallClockValue } from "@/lib/date-utils";
 
 type Question = {
   id: string;
@@ -503,12 +504,12 @@ export function QuizClient({
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const seconds = String(secondsLeft % 60).padStart(2, "0");
 
-  const now = new Date();
-  const opensAtDate = opensAt ? new Date(opensAt) : null;
-  const closesAtDate = closesAt ? new Date(closesAt) : null;
+  const now = getCurrentWallClockValue();
+  const opensAtValue = opensAt ? toStoredWallClockValue(opensAt) : null;
+  const closesAtValue = closesAt ? toStoredWallClockValue(closesAt) : null;
 
-  const startsInFuture = opensAtDate && now < opensAtDate;
-  const closedToNewAttempts = closesAtDate && now > closesAtDate && !attemptStarted;
+  const startsInFuture = opensAtValue && now < opensAtValue;
+  const closedToNewAttempts = closesAtValue && now > closesAtValue && !attemptStarted;
 
   if (!isStudent) {
     return (
@@ -731,7 +732,7 @@ export function QuizClient({
           </span>
         </div>
         <p className="mt-2 text-sm text-zinc-600">
-          Opens: {opensAtDate ? opensAtDate.toLocaleString() : "Anytime"} | Closes: {closesAtDate ? closesAtDate.toLocaleString() : "No close"}
+          Opens: {opensAtValue ? formatWallClockDateTime(opensAtValue) : "Anytime"} | Closes: {closesAtValue ? formatWallClockDateTime(closesAtValue) : "No close"}
         </p>
         {hasPassword ? <p className="text-sm text-zinc-600">This test requires a password to start.</p> : null}
       </header>
@@ -740,7 +741,7 @@ export function QuizClient({
 
       {!attemptStarted && startsInFuture ? (
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-          Test opens at {opensAtDate?.toLocaleString()}.
+          Test opens at {opensAtValue ? formatWallClockDateTime(opensAtValue) : "Anytime"}.
         </p>
       ) : null}
 
