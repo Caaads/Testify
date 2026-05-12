@@ -67,11 +67,7 @@ function normalizeCorrectAnswer(question: IncomingQuestion) {
       .filter(Boolean);
     const candidates = [...new Set(listed.length > 0 ? listed : fallback)];
 
-    if (candidates.length > 1) {
-      return JSON.stringify(candidates);
-    }
-
-    return candidates[0] || "";
+    return candidates.length > 0 ? JSON.stringify(candidates) : "";
   }
 
   if (question.type === "essay") {

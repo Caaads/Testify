@@ -88,10 +88,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: submissionsError.message }, { status: 500 });
   }
 
+  const studentIds = Array.from(
+    new Set((submissions ?? []).map((submission) => submission.student_id).filter(Boolean)),
+  );
+
+  const { data: classStudents } = studentIds.length > 0
+    ? await auth.supabase
+        .from("class_students")
+        .select("student_id, student_name, profiles(full_name)")
+        .eq("class_id", permission.quiz.class_id)
+        .in("student_id", studentIds)
+    : { data: [] as Array<{ student_id: string; student_name: string | null; profiles?: { full_name: string | null }[] }> };
+
+  const studentNameMap = new Map(
+    (classStudents ?? []).map((entry) => [
+      entry.student_id,
+      entry.student_name || entry.profiles?.[0]?.full_name || null,
+    ] as const),
+  );
+
+  const submissionsWithNames = (submissions ?? []).map((submission) => ({
+    ...submission,
+    student_name: studentNameMap.get(submission.student_id) || submission.profiles?.[0]?.full_name || null,
+  }));
+
   return NextResponse.json({
     quiz: permission.quiz,
     questions: questions ?? [],
-    submissions: submissions ?? [],
+    submissions: submissionsWithNames,
   });
 }
 

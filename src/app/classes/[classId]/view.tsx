@@ -63,7 +63,6 @@ export function ClassDetailClient({
   joinRequests,
   terms,
   quizzes,
-  mySubmissions,
   announcements,
 }: {
   classId: string;
@@ -79,7 +78,6 @@ export function ClassDetailClient({
   joinRequests: JoinRequest[];
   terms: Term[];
   quizzes: Quiz[];
-  mySubmissions: { quiz_id: string; status: string }[];
   announcements: Announcement[];
 }) {
   const router = useRouter();
@@ -138,8 +136,6 @@ export function ClassDetailClient({
 
     return sections;
   }, [quizzes, terms, termMap, normalizedSearch]);
-
-  const submissionMap = useMemo(() => new Map((mySubmissions || []).map((s) => [s.quiz_id, s.status])), [mySubmissions]);
 
   const visibleTermSections = useMemo(() => {
     if (!activeTermId) {
@@ -477,25 +473,9 @@ export function ClassDetailClient({
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          {(() => {
-                            const now = new Date();
-                            const opensAt = quiz.opens_at ? new Date(quiz.opens_at) : null;
-                            const closesAt = quiz.closes_at ? new Date(quiz.closes_at) : null;
-                            let label = "Live now";
-                            if (opensAt && now < opensAt) {
-                              label = "Upcoming";
-                            } else if (closesAt && now > closesAt) {
-                              label = "Test closed";
-                            }
-
-                            const colorClass = label === "Live now" ? "bg-emerald-400/15 text-emerald-200" : label === "Upcoming" ? "bg-amber-400/10 text-amber-200" : "bg-rose-500/10 text-rose-200";
-
-                            return (
-                              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${colorClass}`}>
-                                {label}
-                              </span>
-                            );
-                          })()}
+                          <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+                            {quiz.opens_at ? "Live now" : "Upcoming"}
+                          </span>
                           {canManage ? (
                             <button
                               type="button"
@@ -522,12 +502,12 @@ export function ClassDetailClient({
                         <span>Created by: {quiz.profiles?.[0]?.full_name || classCreatorName}</span>
                       </div>
 
-                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
                         <Link
                           href={`/quizzes/${quiz.id}`}
                           className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
                         >
-                          {role === "student" && submissionMap.get(quiz.id) === "in_progress" ? "Continue attempt" : "Open test"}
+                          Open test
                         </Link>
                         {canManage ? (
                           <Link

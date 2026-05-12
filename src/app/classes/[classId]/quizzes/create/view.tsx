@@ -492,12 +492,6 @@ export function CreateQuizClient({
           <Link href={`/classes/${classId}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-slate-50">
             Back to Class
           </Link>
-          <Link
-            href={showAiBuilder ? `/classes/${classId}/quizzes/create` : `/classes/${classId}/quizzes/ai-builder`}
-            className="rounded-full border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-800 shadow-sm transition hover:bg-cyan-100"
-          >
-            {showAiBuilder ? "Manual Builder" : "AI Test Builder"}
-          </Link>
           <button
             type="submit"
             form="quiz-builder-form"
@@ -547,7 +541,6 @@ export function CreateQuizClient({
               </div>
             </section>
 
-            {showAiBuilder ? (
             <section className="rounded-3xl border border-white/10 bg-[#08183d] p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
@@ -717,7 +710,6 @@ export function CreateQuizClient({
                 </div>
               ) : null}
             </section>
-            ) : null}
 
             <section className="rounded-3xl border border-white/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
               <div className="mb-4 flex items-center justify-between">
@@ -1024,8 +1016,9 @@ export function CreateQuizClient({
                                 }));
                               }}
                               placeholder="Answer keys (one per line, or comma-separated)"
-                              className="min-h-24 w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-400 focus:bg-white"
+                              className="min-h-24 w-full rounded-2xl border border-slate-100 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-400 bg-slate-900 "
                             />
+                            <p className="mt-2 text-xs text-slate-500">Spaces inside an answer are preserved, so phrases like HUMAN COMPUTER INTERACTION are valid.</p>
                           </div>
                         ) : null}
 
