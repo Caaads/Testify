@@ -522,7 +522,7 @@ export function QuizClient({
               <p className="mt-1 text-sm text-zinc-600">Questions: {questions.length}</p>
               <p className="text-sm text-zinc-600">Total score: {totalScore}</p>
               <p className="mt-1 text-sm text-zinc-600">
-                Opens: {opensAtDate ? opensAtDate.toLocaleString() : "Anytime"} | Closes: {closesAtDate ? closesAtDate.toLocaleString() : "No close"}
+                Opens: {opensAtValue ? formatWallClockDateTime(opensAtValue) : "Anytime"} | Closes: {closesAtValue ? formatWallClockDateTime(closesAtValue) : "No close"}
               </p>
             </div>
 
